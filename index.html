@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1f2937" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<title>バイオログ</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1f2937; --sub:#6b7280;
+    --line:#e5e7eb; --accent:#0d9488; --chip:#f1f5f9; --shadow:0 1px 3px rgba(0,0,0,.08);
+    --weight:#2563eb; --mood:#0d9488; --stress:#d85a30; --sleep:#7c3aed; --flag:#ba7517;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0f1115; --card:#1a1d23; --ink:#e5e7eb; --sub:#9ca3af;
+      --line:#2a2e36; --accent:#2dd4bf; --chip:#23272f; --shadow:0 1px 3px rgba(0,0,0,.4);
+      --weight:#60a5fa; --mood:#2dd4bf; --stress:#f0997b; --sleep:#a78bfa; --flag:#f0b35b; }
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:16px; line-height:1.5; }
+  body{ padding-bottom:72px; max-width:640px; margin:0 auto; }
+  header{ padding:14px 16px calc(14px + env(safe-area-inset-top)); position:sticky; top:0;
+    background:var(--bg); z-index:5; }
+  header h1{ font-size:18px; margin:0; font-weight:700; letter-spacing:.02em; }
+  .view{ display:none; padding:0 16px; }
+  .view.active{ display:block; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:16px; margin:0 0 14px; box-shadow:var(--shadow); }
+  label{ display:block; font-size:13px; color:var(--sub); margin:0 0 6px; font-weight:600; }
+  label .hint{ color:var(--sub); font-weight:400; font-size:12px; }
+  input,select,textarea,button{ font:inherit; color:inherit; }
+  input[type=number],input[type=time],input[type=text],textarea{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+    background:var(--bg); color:var(--ink); }
+  textarea{ resize:vertical; min-height:54px; }
+  .row{ display:flex; gap:10px; }
+  .row > *{ flex:1; }
+  .field{ margin-bottom:14px; }
+  .field:last-child{ margin-bottom:0; }
+  #weight{ font-size:26px; font-weight:700; text-align:right; }
+  /* scale buttons */
+  .scale{ display:flex; gap:5px; }
+  .scale .opt{ flex:1; border:1px solid var(--line); background:var(--bg); color:var(--sub);
+    border-radius:10px; padding:9px 2px; text-align:center; font-size:12px; line-height:1.3;
+    cursor:pointer; }
+  .scale .opt .frac{ display:block; font-size:11px; color:var(--sub); margin-top:2px; }
+  .scale .opt.on{ border:2px solid var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); color:var(--accent); font-weight:600; }
+  .scale .opt.on .frac{ color:var(--accent); }
+  /* chips */
+  .chips{ display:flex; flex-wrap:wrap; gap:7px; }
+  .chip{ border:1px solid var(--line); background:var(--bg); color:var(--sub);
+    border-radius:10px; padding:7px 13px; font-size:13px; cursor:pointer; }
+  .chip.on{ border:2px solid var(--flag); background:color-mix(in srgb,var(--flag) 14%,transparent); color:var(--flag); font-weight:600; }
+  .mini{ border:1px solid var(--line); background:var(--card); color:var(--sub);
+    border-radius:8px; padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer; flex:none; }
+  .mini.wide{ width:100%; padding:9px; }
+  .save{ width:100%; border:none; background:var(--accent); color:#fff; font-weight:700;
+    padding:14px; border-radius:12px; font-size:16px; cursor:pointer; margin-top:14px; }
+  .save:active{ opacity:.85; }
+  .save.sub{ background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  /* date / seg nav */
+  .datenav{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .datenav button{ border:1px solid var(--line); background:var(--card); color:var(--ink);
+    width:40px; height:40px; border-radius:10px; font-size:18px; cursor:pointer; }
+  .datenav .m{ font-weight:700; font-size:17px; }
+  .datenav .m .today{ font-size:12px; color:var(--accent); margin-left:6px; }
+  .seg{ display:flex; background:var(--chip); border-radius:9px; padding:3px; gap:3px; margin-bottom:14px; }
+  .seg button{ flex:1; border:none; background:transparent; color:var(--sub); padding:9px;
+    border-radius:7px; font-weight:600; cursor:pointer; font-size:14px; }
+  .seg button.on{ background:var(--card); color:var(--ink); box-shadow:var(--shadow); }
+  .done{ font-size:11px; }
+  /* trends */
+  .panel{ display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .panel .plab{ width:62px; font-size:12px; color:var(--sub); flex:none; }
+  .panel .plab small{ display:block; font-size:11px; color:var(--sub); }
+  .panel svg{ flex:1; height:64px; }
+  .xlabels{ display:flex; justify-content:space-between; font-size:11px; color:var(--sub);
+    padding:2px 8px 0 70px; }
+  .leg{ display:flex; flex-wrap:wrap; gap:14px; padding-left:70px; margin-top:10px; font-size:12px; color:var(--sub); }
+  .leg span .sw{ display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:5px; }
+  h3.sec{ font-size:13px; color:var(--sub); margin:4px 2px 10px; font-weight:700; }
+  .muted{ color:var(--sub); font-size:12px; }
+  .empty{ text-align:center; color:var(--sub); padding:30px 0; font-size:14px; }
+  /* settings */
+  .btnrow{ display:flex; gap:10px; flex-wrap:wrap; }
+  .btn{ border:1px solid var(--line); background:var(--card); color:var(--ink);
+    padding:11px 12px; border-radius:10px; font-weight:600; cursor:pointer; flex:1; min-width:130px; }
+  .acct{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .catedit{ display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .catedit .nm{ flex:1; }
+  .catedit button{ border:none; background:transparent; color:var(--stress); cursor:pointer; font-size:18px; }
+  .addcat{ display:flex; gap:8px; margin-top:10px; }
+  .addcat input{ flex:1; }
+  .addcat button{ border:none; background:var(--accent); color:#fff; border-radius:9px; padding:0 16px; font-weight:700; cursor:pointer; }
+  /* tab bar */
+  nav.tabs{ position:fixed; bottom:0; left:0; right:0; display:flex; background:var(--card);
+    border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); z-index:10; max-width:640px; margin:0 auto; }
+  nav.tabs button{ flex:1; border:none; background:transparent; color:var(--sub);
+    padding:9px 0 8px; font-size:11px; cursor:pointer; display:flex; flex-direction:column;
+    align-items:center; gap:3px; }
+  nav.tabs button.on{ color:var(--accent); }
+  nav.tabs .ic{ font-size:20px; line-height:1; }
+  .toast{ position:fixed; bottom:84px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:var(--bg); padding:10px 18px; border-radius:999px;
+    font-size:14px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:60; white-space:nowrap; }
+  .toast.show{ opacity:.95; }
+  /* auth gate */
+  .authgate{ position:fixed; inset:0; background:var(--bg); display:flex; align-items:center;
+    justify-content:center; z-index:50; padding:24px; }
+  .authgate.hidden{ display:none; }
+  .authcard{ background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:28px 24px; max-width:340px; width:100%; text-align:center; box-shadow:var(--shadow); }
+  .authicon{ width:64px; height:64px; border-radius:18px; background:var(--accent); color:#fff;
+    font-size:30px; font-weight:700; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
+  .authcard h2{ margin:0 0 8px; font-size:20px; }
+  .authcard p{ color:var(--sub); font-size:14px; margin:0 0 18px; }
+</style>
+</head>
+<body>
+<header><h1>バイオログ</h1></header>
+
+<!-- ========== 記録 ========== -->
+<section id="v-rec" class="view active">
+  <div class="datenav">
+    <button id="dPrev">‹</button>
+    <span class="m" id="dLabel"></span>
+    <button id="dNext">›</button>
+  </div>
+  <div class="seg" id="cardSeg">
+    <button data-card="morning">朝 <span class="done" id="doneM"></span></button>
+    <button data-card="evening">夜 <span class="done" id="doneE"></span></button>
+  </div>
+
+  <!-- 朝カード -->
+  <div id="cardMorning" class="card">
+    <div class="field">
+      <label>体重 <span class="hint" id="wHint"></span></label>
+      <div class="row">
+        <input id="weight" type="number" inputmode="decimal" step="0.1" placeholder="—" />
+        <button class="mini" id="wSkip" type="button">スキップ</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>昨夜の眠り</label>
+      <div class="scale" id="sleepScale"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>寝付き</label><input id="onset" type="time" /></div>
+      <div class="field"><label>起床 <button class="mini" id="wakeNow" type="button">今</button></label><input id="wake" type="time" /></div>
+    </div>
+  </div>
+
+  <!-- 夜カード -->
+  <div id="cardEvening" class="card">
+    <div class="field"><label>気分 <span class="hint">— 晴れていた時間</span></label><div class="scale" id="moodScale"></div></div>
+    <div class="field"><label>緊張 <span class="hint">— 張り詰めていた時間</span></label><div class="scale" id="stressScale"></div></div>
+    <div class="field"><label>昼寝 <span class="hint">（分・任意）</span></label><input id="nap" type="number" inputmode="numeric" step="10" min="0" placeholder="0" /></div>
+    <div class="field"><label>特記 <span class="hint">— 該当だけ</span></label><div class="chips" id="flagChips"></div></div>
+    <div class="field">
+      <button class="mini wide" id="memoToggle" type="button">＋ ひとこと</button>
+      <textarea id="memo" style="display:none;margin-top:8px" placeholder="任意（睡眠の事情なども）"></textarea>
+    </div>
+    <button class="save" id="sendBtn">この日をObsidianへ送る</button>
+    <p class="muted" style="text-align:center;margin:8px 0 0">送るとObsidianが開きます（1日1回でOK）</p>
+  </div>
+</section>
+
+<!-- ========== 推移 ========== -->
+<section id="v-trend" class="view">
+  <div class="seg" id="rangeSeg">
+    <button data-days="14">2週</button>
+    <button class="on" data-days="30">1か月</button>
+    <button data-days="90">3か月</button>
+  </div>
+  <div class="card" id="trendCard">
+    <div id="trendBody"></div>
+  </div>
+</section>
+
+<!-- ========== 設定 ========== -->
+<section id="v-set" class="view">
+  <div class="card acct">
+    <span class="muted" id="acctEmail">—</span>
+    <button class="btn" id="logoutBtn" style="flex:none;min-width:auto;padding:8px 14px">ログアウト</button>
+  </div>
+  <div class="card">
+    <h3 class="sec">Obsidian連携</h3>
+    <div class="field">
+      <label>Vault名（Advanced URIで使う）</label>
+      <input id="vaultName" type="text" placeholder="例: yk-Obsidian" />
+    </div>
+    <p class="muted">「Obsidianへ送る」で <code>99_Attachments/biolog/data.md</code> に1日1行を追記します。Obsidianに Advanced URI プラグインが必要です。</p>
+  </div>
+  <div class="card">
+    <h3 class="sec">特記フラグ</h3>
+    <div id="flagList"></div>
+    <div class="addcat"><input id="addFlag" type="text" placeholder="追加するフラグ名" /><button id="addFlagBtn" type="button">追加</button></div>
+  </div>
+  <div class="card">
+    <h3 class="sec">バックアップ</h3>
+    <div class="btnrow">
+      <button class="btn" id="expJson">JSON書き出し</button>
+      <button class="btn" id="impJson">JSON取り込み</button>
+    </div>
+    <p class="muted">全データをJSONで保存／復元（取り込みは日付で統合）。保険用。</p>
+    <input type="file" id="impFile" accept="application/json" style="display:none" />
+  </div>
+  <p class="muted" style="text-align:center">バイオログ · Firebaseで同期（ログイン中のアカウントに保存）</p>
+</section>
+
+<nav class="tabs" id="tabs">
+  <button class="on" data-view="v-rec"><span class="ic">＋</span>記録</button>
+  <button data-view="v-trend"><span class="ic">◔</span>推移</button>
+  <button data-view="v-set"><span class="ic">⚙</span>設定</button>
+</nav>
+
+<!-- ========== ログインゲート ========== -->
+<div class="authgate" id="authGate">
+  <div class="authcard">
+    <div class="authicon">♡</div>
+    <h2>バイオログ</h2>
+    <p>PC・スマホでデータを同期するにはログインが必要です。</p>
+    <button class="save" id="loginBtn" style="margin-top:0">Googleでログイン</button>
+    <p class="muted" id="authMsg"></p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+/* Firebase設定（公開して安全な値＝秘密鍵ではない）。Firebaseプロジェクト名は bio-pwa
+   （GitHub/ローカルは biolog-pwa だがFirebaseのみ bio-pwa で名前が異なる）。 */
+const firebaseConfig = {
+  apiKey: "AIzaSyCqq_jE_RyVNcLVq6ZCoC1TATFSsW7NNmA",
+  authDomain: "bio-pwa.firebaseapp.com",
+  projectId: "bio-pwa",
+  storageBucket: "bio-pwa.firebasestorage.app",
+  messagingSenderId: "615566736145",
+  appId: "1:615566736145:web:319dc1e2498b35b937eab0"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+const provider = new GoogleAuthProvider();
+
+/* ---------- 定数 ---------- */
+const SLEEP_LABELS = ["とても悪い","悪い","普通","良い","とても良い"];   // 値 1..5
+const FREQ_LABELS  = ["ほぼ無","少し","半分","ほとんど","ずっと"];        // 値 0..4
+const FREQ_FRAC    = ["0","¼","½","¾","全"];
+const DEFAULTS = {
+  flags: [
+    { key:"unwell", label:"体調不良" },
+    { key:"heavy",  label:"予定が重い" },
+    { key:"active", label:"よく動いた" },
+    { key:"social", label:"人と長く" }
+  ],
+  vaultName: ""
+};
+const DATA_PATH = "99_Attachments/biolog/data.md";
+
+/* ---------- 状態 ---------- */
+let days = {};            // { "YYYY-MM-DD": {date,weight,sleep,onset,wake,mood,stress,nap,flags:[],memo,...} }
+let settings = JSON.parse(JSON.stringify(DEFAULTS));
+let curDate = logicalTodayStr();
+let cardMode = (new Date().getHours()>=5 && new Date().getHours()<17) ? "morning" : "evening";
+let rangeDays = 30;
+let uid = null;
+let unsubDays = null, unsubSettings = null;
+
+/* ---------- ユーティリティ ---------- */
+function $(id){ return document.getElementById(id); }
+function pad(n){ return String(n).padStart(2,"0"); }
+function fmt(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function logicalToday(){ const d=new Date(); if(d.getHours()<5){ d.setDate(d.getDate()-1); } d.setHours(0,0,0,0); return d; }
+function logicalTodayStr(){ return fmt(logicalToday()); }
+function parseDate(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
+function shiftDate(s,delta){ const d=parseDate(s); d.setDate(d.getDate()+delta); return fmt(d); }
+function dowJa(s){ return "日月火水木金土"[parseDate(s).getDay()]; }
+function dateLabel(s){ return Number(s.slice(5,7))+"/"+Number(s.slice(8,10))+"（"+dowJa(s)+"）"; }
+function nowHM(){ const d=new Date(); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),1600); }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function lastWeight(){
+  const ds=Object.keys(days).filter(k=>days[k]&&days[k].weight!=null).sort();
+  return ds.length? days[ds[ds.length-1]].weight : null;
+}
+
+/* ---------- Firestore ---------- */
+function dayRef(date){ return doc(db,"users",uid,"days",date); }
+function settingsRef(){ return doc(db,"users",uid,"meta","settings"); }
+function patchDay(p){
+  if(!uid){ toast("ログインしてください"); return; }
+  const cur = days[curDate] || { date: curDate };
+  const next = { ...cur, ...p, date: curDate, updatedAt: new Date().toISOString() };
+  days[curDate] = next;
+  setDoc(dayRef(curDate), next, { merge:true }).catch(()=>toast("保存に失敗（復帰後に同期）"));
+}
+function saveSettings(){ if(uid) setDoc(settingsRef(), settings).catch(()=>{}); }
+function normalizeSettings(d){
+  return {
+    flags: Array.isArray(d.flags) && d.flags.length ? d.flags.map(f=>({key:f.key||f.label, label:f.label||f.key})) : DEFAULTS.flags.slice(),
+    vaultName: typeof d.vaultName==="string" ? d.vaultName : ""
+  };
+}
+
+/* ---------- 認証 ---------- */
+function showGate(){ $("authGate").classList.remove("hidden"); }
+function hideGate(){ $("authGate").classList.add("hidden"); }
+async function doLogin(){
+  $("authMsg").textContent="";
+  try{ await signInWithPopup(auth, provider); }
+  catch(e){
+    const code = (e&&e.code)||"";
+    if(code==="auth/popup-blocked"||code==="auth/operation-not-supported-in-this-environment"||code==="auth/cancelled-popup-request"){
+      try{ await signInWithRedirect(auth, provider); }catch(e2){ $("authMsg").textContent="ログイン失敗: "+(e2.code||e2.message); }
+    } else if(code==="auth/popup-closed-by-user"){ /* 無視 */ }
+    else { $("authMsg").textContent="ログイン失敗: "+(code||e.message); }
+  }
+}
+function startSync(){
+  unsubSettings = onSnapshot(settingsRef(), snap=>{
+    if(snap.exists()){ settings = normalizeSettings(snap.data()); }
+    else { settings = JSON.parse(JSON.stringify(DEFAULTS)); setDoc(settingsRef(), settings).catch(()=>{}); }
+    $("vaultName").value = settings.vaultName||"";
+    renderRecord(); renderSettings();
+  }, err=>console.error("settings sync", err));
+  unsubDays = onSnapshot(collection(db,"users",uid,"days"), snap=>{
+    days = {}; snap.docs.forEach(d=>{ days[d.id]=d.data(); });
+    refreshActive();
+  }, err=>console.error("days sync", err));
+}
+function stopSync(){ if(unsubDays){unsubDays();unsubDays=null;} if(unsubSettings){unsubSettings();unsubSettings=null;} days={}; }
+function refreshActive(){
+  const v=document.querySelector(".view.active");
+  if(!v) return;
+  if(v.id==="v-rec") renderRecord();
+  else if(v.id==="v-trend") renderTrend();
+  else if(v.id==="v-set") renderSettings();
+}
+
+/* ---------- 記録ビュー ---------- */
+function curDay(){ return days[curDate] || {}; }
+function buildScale(elId, labels, fracs, current, onPick){
+  const el=$(elId); el.innerHTML="";
+  labels.forEach((lab,i)=>{
+    const b=document.createElement("div"); b.className="opt"+(current===i?" on":"");
+    b.innerHTML = esc(lab) + (fracs? `<span class="frac">${fracs[i]}</span>`:"");
+    b.onclick=()=>onPick(i);
+    el.appendChild(b);
+  });
+}
+function renderRecord(){
+  const d=curDay();
+  $("dLabel").innerHTML = dateLabel(curDate) + (curDate===logicalTodayStr()?'<span class="today">今日</span>':"");
+  // seg
+  $("cardSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("on", b.dataset.card===cardMode));
+  $("cardMorning").style.display = cardMode==="morning"?"block":"none";
+  $("cardEvening").style.display = cardMode==="evening"?"block":"none";
+  // done marks
+  const mDone = (d.weight!=null||d.sleep!=null||d.onset||d.wake);
+  const eDone = (d.mood!=null||d.stress!=null);
+  $("doneM").textContent = mDone?"●":"";
+  $("doneE").textContent = eDone?"●":"";
+  // morning
+  const lw=lastWeight();
+  $("weight").value = d.weight!=null ? d.weight : "";
+  $("wHint").textContent = (d.weight==null && lw!=null) ? `前回 ${lw}` : "";
+  buildScale("sleepScale", SLEEP_LABELS, null, d.sleep!=null?d.sleep-1:null, i=>{ patchDay({sleep:i+1, loggedMorningAt:new Date().toISOString()}); });
+  $("onset").value = d.onset||"";
+  $("wake").value = d.wake||"";
+  // evening
+  buildScale("moodScale", FREQ_LABELS, FREQ_FRAC, d.mood!=null?d.mood:null, i=>{ patchDay({mood:i, loggedEveningAt:new Date().toISOString()}); });
+  buildScale("stressScale", FREQ_LABELS, FREQ_FRAC, d.stress!=null?d.stress:null, i=>{ patchDay({stress:i, loggedEveningAt:new Date().toISOString()}); });
+  $("nap").value = d.nap!=null ? d.nap : "";
+  renderFlags(d);
+  const mt=$("memo"); mt.value=d.memo||"";
+  if(d.memo){ mt.style.display="block"; }
+}
+function renderFlags(d){
+  const wrap=$("flagChips"); wrap.innerHTML="";
+  const on=new Set(d.flags||[]);
+  settings.flags.forEach(f=>{
+    const c=document.createElement("div"); c.className="chip"+(on.has(f.key)?" on":"");
+    c.textContent=f.label; c.onclick=()=>{
+      const set=new Set((curDay().flags)||[]);
+      if(set.has(f.key)) set.delete(f.key); else set.add(f.key);
+      patchDay({ flags:[...set], loggedEveningAt:new Date().toISOString() });
+    };
+    wrap.appendChild(c);
+  });
+}
+function sendToObsidian(){
+  const d=days[curDate];
+  if(!d || (d.weight==null&&d.sleep==null&&d.mood==null&&d.stress==null)){ toast("記録がありません"); return; }
+  const obj={ date:curDate };
+  ["weight","sleep","onset","wake","mood","stress","nap","memo"].forEach(k=>{ if(d[k]!=null&&d[k]!=="") obj[k]=d[k]; });
+  if(d.flags&&d.flags.length) obj.flags=d.flags;
+  const line=JSON.stringify(obj);
+  const params=[];
+  if(settings.vaultName) params.push("vault="+encodeURIComponent(settings.vaultName));
+  params.push("filepath="+encodeURIComponent(DATA_PATH));
+  params.push("data="+encodeURIComponent(line+"\n"));
+  params.push("mode=append");
+  const url="obsidian://advanced-uri?"+params.join("&");
+  toast("Obsidianへ送信");
+  setTimeout(()=>{ location.href=url; }, 200);
+}
+
+/* ---------- 推移ビュー ---------- */
+function dayKeys(n){ const arr=[]; const base=logicalTodayStr(); for(let i=n-1;i>=0;i--) arr.push(shiftDate(base,-i)); return arr; }
+function onsetHours(s){ if(!s) return null; const [h,m]=s.split(":").map(Number); let v=h+m/60; if(v<12)v+=24; return v; }
+function seg(pts){ let dp="",pen=false; pts.forEach(p=>{ if(p==null){pen=false;return;} dp+=(pen?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1)+" "; pen=true; }); return dp.trim(); }
+function dots(pts,color){ return pts.filter(Boolean).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.2" fill="${color}"/>`).join(""); }
+function panel(plab, psub, series, color, opts={}){
+  // series: array aligned to keys, value|null. opts:{vmin,vmax,ma:[],maColor}
+  const W=560,H=64,padL=6,padR=6,top=8,bot=8;
+  const N=series.length;
+  const vals=series.filter(v=>v!=null);
+  let vmin=opts.vmin, vmax=opts.vmax;
+  if(vmin==null){ vmin=Math.min(...vals); vmax=Math.max(...vals); if(vmin===vmax){vmin-=1;vmax+=1;} const pd=(vmax-vmin)*0.12; vmin-=pd; vmax+=pd; }
+  const x=i=> padL + (N===1? (W-padL-padR)/2 : i*(W-padL-padR)/(N-1));
+  const y=v=> top + (1-(v-vmin)/(vmax-vmin))*(H-top-bot);
+  const pts=series.map((v,i)=> v==null?null:{x:x(i),y:y(v)});
+  let extra="";
+  if(opts.ma){ const mp=opts.ma.map((v,i)=> v==null?null:{x:x(i),y:y(v)}); extra+=`<path d="${seg(mp)}" fill="none" stroke="${opts.maColor||color}" stroke-width="2" stroke-dasharray="4 3" opacity=".75"/>`; }
+  return `<div class="panel"><div class="plab">${plab}<small>${psub||""}</small></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <path d="${seg(pts)}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots(pts,color)}${extra}</svg></div>`;
+}
+function movingAvg(series,win){
+  return series.map((_,i)=>{ let s=0,c=0; for(let j=Math.max(0,i-win+1);j<=i;j++){ if(series[j]!=null){s+=series[j];c++;} } return c?s/c:null; });
+}
+function renderTrend(){
+  const keys=dayKeys(rangeDays);
+  const has = keys.some(k=>days[k]);
+  if(!has){ $("trendBody").innerHTML='<div class="empty">まだ記録がありません</div>'; return; }
+  const W=set=>keys.map(k=> (days[k]&&days[k][set]!=null)?days[k][set]:null);
+  const weight=W("weight"), mood=W("mood"), stress=W("stress"), sleep=W("sleep");
+  const onset=keys.map(k=> days[k]&&days[k].onset?onsetHours(days[k].onset):null);
+  let html="";
+  html+=panel("体重","kg", weight, "var(--weight)", { ma:movingAvg(weight,7), maColor:"var(--weight)" });
+  // mood + stress overlay
+  html+=overlayPanel("気分・緊張","0–4", mood, stress, "var(--mood)", "var(--stress)");
+  html+=panel("睡眠","1–5", sleep, "var(--sleep)", { vmin:0.6, vmax:5.4 });
+  html+=panel("寝付き","時刻", onset, "var(--sleep)", {});
+  // flag ticks
+  html+=flagTicks(keys);
+  // x labels
+  html+=`<div class="xlabels"><span>${keys.length?dateLabel(keys[0]).slice(0,-3):""}</span><span>${keys.length>2?keys[Math.floor(keys.length/2)].slice(5).replace("-","/"):""}</span><span>${keys.length?keys[keys.length-1].slice(5).replace("-","/"):""}</span></div>`;
+  html+=`<div class="leg">
+    <span><span class="sw" style="background:var(--weight)"></span>体重（点線=7日平均）</span>
+    <span><span class="sw" style="background:var(--mood)"></span>気分</span>
+    <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
+    <span><span class="sw" style="background:var(--sleep)"></span>睡眠・寝付き</span></div>`;
+  $("trendBody").innerHTML=html;
+}
+function overlayPanel(plab,psub,a,b,ca,cb){
+  const W=560,H=64,padL=6,padR=6,top=8,bot=8,N=a.length,vmin=-0.3,vmax=4.3;
+  const x=i=> padL + (N===1?(W-padL-padR)/2:i*(W-padL-padR)/(N-1));
+  const y=v=> top + (1-(v-vmin)/(vmax-vmin))*(H-top-bot);
+  const pa=a.map((v,i)=>v==null?null:{x:x(i),y:y(v)});
+  const pb=b.map((v,i)=>v==null?null:{x:x(i),y:y(v)});
+  return `<div class="panel"><div class="plab">${plab}<small>${psub}</small></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <path d="${seg(pa)}" fill="none" stroke="${ca}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots(pa,ca)}
+    <path d="${seg(pb)}" fill="none" stroke="${cb}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots(pb,cb)}</svg></div>`;
+}
+function flagTicks(keys){
+  const W=560,padL=6,padR=6,N=keys.length;
+  const x=i=> padL + (N===1?(W-padL-padR)/2:i*(W-padL-padR)/(N-1));
+  let marks=""; keys.forEach((k,i)=>{ if(days[k]&&days[k].flags&&days[k].flags.length){ marks+=`<circle cx="${x(i).toFixed(1)}" cy="9" r="3.2" fill="var(--flag)"/>`; } });
+  if(!marks) return "";
+  return `<div class="panel"><div class="plab" style="font-size:11px">特記</div><svg viewBox="0 0 ${W} 18" preserveAspectRatio="none" style="height:18px">${marks}</svg></div>`;
+}
+
+/* ---------- 設定ビュー ---------- */
+function renderSettings(){
+  $("vaultName").value = settings.vaultName||"";
+  const el=$("flagList"); el.innerHTML="";
+  settings.flags.forEach((f,i)=>{
+    const row=document.createElement("div"); row.className="catedit";
+    row.innerHTML=`<span class="nm">${esc(f.label)}</span><button title="削除" type="button">×</button>`;
+    row.querySelector("button").onclick=()=>{ settings.flags.splice(i,1); saveSettings(); renderSettings(); };
+    el.appendChild(row);
+  });
+}
+function addFlag(){
+  const v=$("addFlag").value.trim(); if(!v) return;
+  const key=v.toLowerCase().replace(/\s+/g,"_");
+  if(!settings.flags.some(f=>f.key===key)) settings.flags.push({key,label:v});
+  $("addFlag").value=""; saveSettings(); renderSettings();
+}
+
+/* ---------- バックアップ ---------- */
+function download(name,text,mime){
+  const blob=new Blob([text],{type:mime}); const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function exportJson(){
+  download(`biolog-${logicalTodayStr()}.json`, JSON.stringify({version:1,exportedAt:new Date().toISOString(),settings,days},null,2),"application/json");
+  toast("書き出しました");
+}
+async function importJson(e){
+  const f=e.target.files[0]; if(!f) return;
+  if(!uid){ toast("ログインしてください"); e.target.value=""; return; }
+  try{
+    const data=JSON.parse(await f.text());
+    if(data.settings){ settings=normalizeSettings(data.settings); saveSettings(); }
+    const dd=data.days||{}; let n=0;
+    for(const k of Object.keys(dd)){ if(dd[k]){ setDoc(dayRef(k), dd[k], {merge:true}); n++; } }
+    toast(`${n}日分を取り込みました`);
+  }catch(err){ toast("取り込みに失敗しました"); }
+  e.target.value="";
+}
+
+/* ---------- バインド ---------- */
+function bindUI(){
+  $("loginBtn").onclick=doLogin;
+  $("logoutBtn").onclick=()=>signOut(auth);
+  $("tabs").querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{
+      $("tabs").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+      document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+      $(b.dataset.view).classList.add("active");
+      refreshActive();
+    };
+  });
+  $("cardSeg").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ cardMode=b.dataset.card; renderRecord(); }; });
+  $("dPrev").onclick=()=>{ curDate=shiftDate(curDate,-1); renderRecord(); };
+  $("dNext").onclick=()=>{ if(curDate<logicalTodayStr()){ curDate=shiftDate(curDate,1); renderRecord(); } };
+  $("weight").addEventListener("change",()=>{ const v=$("weight").value; patchDay({ weight: v===""?null:Math.round(Number(v)*10)/10, loggedMorningAt:new Date().toISOString() }); });
+  $("wSkip").onclick=()=>{ patchDay({weight:null}); $("weight").value=""; toast("体重スキップ"); };
+  $("onset").addEventListener("change",()=>patchDay({onset:$("onset").value, loggedMorningAt:new Date().toISOString()}));
+  $("wake").addEventListener("change",()=>patchDay({wake:$("wake").value, loggedMorningAt:new Date().toISOString()}));
+  $("wakeNow").onclick=()=>{ const t=nowHM(); $("wake").value=t; patchDay({wake:t, loggedMorningAt:new Date().toISOString()}); };
+  $("nap").addEventListener("change",()=>{ const v=$("nap").value; patchDay({ nap: v===""?null:Math.round(Number(v)), loggedEveningAt:new Date().toISOString() }); });
+  $("memoToggle").onclick=()=>{ const m=$("memo"); m.style.display = m.style.display==="none"?"block":"none"; if(m.style.display==="block") m.focus(); };
+  $("memo").addEventListener("change",()=>patchDay({memo:$("memo").value.trim(), loggedEveningAt:new Date().toISOString()}));
+  $("sendBtn").onclick=sendToObsidian;
+  $("rangeSeg").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ rangeDays=Number(b.dataset.days); $("rangeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); renderTrend(); }; });
+  $("vaultName").addEventListener("change",()=>{ settings.vaultName=$("vaultName").value.trim(); saveSettings(); });
+  $("addFlagBtn").onclick=addFlag;
+  $("expJson").onclick=exportJson;
+  $("impJson").onclick=()=>$("impFile").click();
+  $("impFile").onchange=importJson;
+}
+
+/* ---------- 初期化 ---------- */
+function init(){
+  bindUI();
+  renderRecord();
+  getRedirectResult(auth).catch(()=>{});
+  onAuthStateChanged(auth, user=>{
+    if(user){ uid=user.uid; $("acctEmail").textContent=user.email||user.displayName||"ログイン中"; hideGate(); startSync(); }
+    else { uid=null; stopSync(); showGate(); }
+  });
+  if("serviceWorker" in navigator && location.protocol.startsWith("http")){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+}
+init();
+</script>
+</body>
+</html>
