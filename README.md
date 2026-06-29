@@ -7,6 +7,12 @@
 - `index.html` — 本体（UI・ロジック・自前SVGグラフ・Firebase連携を内包、`type="module"`）
 - `manifest.json` / `sw.js`（ネットワーク優先） / `icon.svg` / `icon-maskable.svg`
 
+## 推移ビュー（グラフ）
+- 全指標を縦に積んだ1枚の統合SVGチャート（体重／気分・緊張／睡眠／寝付き／特記）
+- 各指標に縦軸ラベル（体重=kg実値、気分緊張=全/無、睡眠=良/悪、寝付き=時刻）＋横軸の日付
+- ホバー/タップで全指標を貫く縦ガイド線を表示し、その日の全値（体重・気分/緊張・睡眠・寝付き・起床・昼寝・特記）を1つのツールチップにまとめて表示
+- マウス（PC）・タッチ（スマホ）両対応（pointerイベント）、ダーク/ライト両対応
+
 ## データ
 - Firestore `users/{uid}/days/{YYYY-MM-DD}`（1日1ドキュメント）、`users/{uid}/meta/settings`（flags語彙・vault名）
 - 朝＝weight, sleep(1-5), onset, wake／夜＝mood(0-4), stress(0-4), nap, flags[]／共通＝memo
@@ -17,8 +23,9 @@
 - Advanced URI＝「Obsidianへ送る」で `99_Attachments/biolog/data.md` に1日1行(JSON)を追記 → Obsidian Sync
 - 保険としてJSON書き出しも有り
 
-## セットアップ（初回・本人）
-1. Firebase Console で新規プロジェクト `biolog-pwa` を作成
+## セットアップ（初回・本人）※2026-06-26 構築済み
+注：Firebaseプロジェクト名は実際には `bio-pwa`（ローカル/リポジトリは biolog-pwa だがFirebaseのみ bio-pwa）。
+1. Firebase Console でプロジェクト `bio-pwa` を作成
 2. Authentication → Sign-in method → Google を有効化
 3. Firestore Database を作成（本番モード・ロケーション asia-northeast1）、ルールを下記に
 4. プロジェクト設定 → ウェブアプリを追加し、firebaseConfig を `index.html` の `firebaseConfig` に貼り替え（`REPLACE_ME` を置換）

@@ -82,6 +82,13 @@
     padding:2px 8px 0 70px; }
   .leg{ display:flex; flex-wrap:wrap; gap:14px; padding-left:70px; margin-top:10px; font-size:12px; color:var(--sub); }
   .leg span .sw{ display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:5px; }
+  /* chart hover */
+  .chartwrap{ position:relative; }
+  .charttip{ position:absolute; pointer-events:none; z-index:20; background:var(--ink); color:var(--bg);
+    font-size:11px; line-height:1.5; padding:7px 10px; border-radius:9px; white-space:nowrap;
+    transform:translate(-50%,-100%); opacity:0; transition:opacity .08s; box-shadow:0 2px 10px rgba(0,0,0,.3); }
+  .charttip.show{ opacity:.97; }
+  .charttip b{ font-weight:700; }
   h3.sec{ font-size:13px; color:var(--sub); margin:4px 2px 10px; font-weight:700; }
   .muted{ color:var(--sub); font-size:12px; }
   .empty{ text-align:center; color:var(--sub); padding:30px 0; font-size:14px; }
@@ -419,67 +426,107 @@ function dayKeys(n){ const arr=[]; const base=logicalTodayStr(); for(let i=n-1;i
 function onsetHours(s){ if(!s) return null; const [h,m]=s.split(":").map(Number); let v=h+m/60; if(v<12)v+=24; return v; }
 function seg(pts){ let dp="",pen=false; pts.forEach(p=>{ if(p==null){pen=false;return;} dp+=(pen?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1)+" "; pen=true; }); return dp.trim(); }
 function dots(pts,color){ return pts.filter(Boolean).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.2" fill="${color}"/>`).join(""); }
-function panel(plab, psub, series, color, opts={}){
-  // series: array aligned to keys, value|null. opts:{vmin,vmax,ma:[],maColor}
-  const W=560,H=64,padL=6,padR=6,top=8,bot=8;
-  const N=series.length;
-  const vals=series.filter(v=>v!=null);
-  let vmin=opts.vmin, vmax=opts.vmax;
-  if(vmin==null){ vmin=Math.min(...vals); vmax=Math.max(...vals); if(vmin===vmax){vmin-=1;vmax+=1;} const pd=(vmax-vmin)*0.12; vmin-=pd; vmax+=pd; }
-  const x=i=> padL + (N===1? (W-padL-padR)/2 : i*(W-padL-padR)/(N-1));
-  const y=v=> top + (1-(v-vmin)/(vmax-vmin))*(H-top-bot);
-  const pts=series.map((v,i)=> v==null?null:{x:x(i),y:y(v)});
-  let extra="";
-  if(opts.ma){ const mp=opts.ma.map((v,i)=> v==null?null:{x:x(i),y:y(v)}); extra+=`<path d="${seg(mp)}" fill="none" stroke="${opts.maColor||color}" stroke-width="2" stroke-dasharray="4 3" opacity=".75"/>`; }
-  return `<div class="panel"><div class="plab">${plab}<small>${psub||""}</small></div>
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    <path d="${seg(pts)}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots(pts,color)}${extra}</svg></div>`;
-}
 function movingAvg(series,win){
   return series.map((_,i)=>{ let s=0,c=0; for(let j=Math.max(0,i-win+1);j<=i;j++){ if(series[j]!=null){s+=series[j];c++;} } return c?s/c:null; });
 }
+function fmtClock(h){ const hh=((Math.floor(h)%24)+24)%24; let mm=Math.round((h-Math.floor(h))*60); if(mm===60){mm=0;} return hh+":"+pad(mm); }
 function renderTrend(){
   const keys=dayKeys(rangeDays);
-  const has = keys.some(k=>days[k]);
-  if(!has){ $("trendBody").innerHTML='<div class="empty">まだ記録がありません</div>'; return; }
-  const W=set=>keys.map(k=> (days[k]&&days[k][set]!=null)?days[k][set]:null);
-  const weight=W("weight"), mood=W("mood"), stress=W("stress"), sleep=W("sleep");
+  if(!keys.some(k=>days[k])){ $("trendBody").innerHTML='<div class="empty">まだ記録がありません</div>'; return; }
+  const N=keys.length;
+  const get=set=>keys.map(k=> (days[k]&&days[k][set]!=null)?days[k][set]:null);
+  const weight=get("weight"), mood=get("mood"), stress=get("stress"), sleep=get("sleep");
   const onset=keys.map(k=> days[k]&&days[k].onset?onsetHours(days[k].onset):null);
-  let html="";
-  html+=panel("体重","kg", weight, "var(--weight)", { ma:movingAvg(weight,7), maColor:"var(--weight)" });
-  // mood + stress overlay
-  html+=overlayPanel("気分・緊張","0–4", mood, stress, "var(--mood)", "var(--stress)");
-  html+=panel("睡眠","1–5", sleep, "var(--sleep)", { vmin:0.6, vmax:5.4 });
-  html+=panel("寝付き","時刻", onset, "var(--sleep)", {});
-  // flag ticks
-  html+=flagTicks(keys);
-  // x labels
-  html+=`<div class="xlabels"><span>${keys.length?dateLabel(keys[0]).slice(0,-3):""}</span><span>${keys.length>2?keys[Math.floor(keys.length/2)].slice(5).replace("-","/"):""}</span><span>${keys.length?keys[keys.length-1].slice(5).replace("-","/"):""}</span></div>`;
-  html+=`<div class="leg">
+  const wma=movingAvg(weight,7);
+
+  const Wv=360, mL=42, mR=10, plotW=Wv-mL-mR;
+  const xFor=i=> mL + (N===1? plotW/2 : i*plotW/(N-1));
+  function dyn(vals,pd){ const v=vals.filter(x=>x!=null); if(!v.length) return [0,1]; let mn=Math.min(...v),mx=Math.max(...v); if(mn===mx){mn-=1;mx+=1;} const p=(mx-mn)*pd; return [mn-p,mx+p]; }
+  const wd=dyn(weight,0.15), od=dyn(onset,0.15);
+  const bands=[
+    { title:"体重", unit:"kg", plotH:46, dmin:wd[0], dmax:wd[1], yTop:wd[1].toFixed(1), yBot:wd[0].toFixed(1),
+      series:[ {vals:wma, color:"var(--weight)", dash:"4 3"}, {vals:weight, color:"var(--weight)", dot:true} ] },
+    { title:"気分・緊張", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3, yTop:"全", yBot:"無",
+      series:[ {vals:mood, color:"var(--mood)", dot:true}, {vals:stress, color:"var(--stress)", dot:true} ] },
+    { title:"睡眠", unit:"1–5", plotH:40, dmin:0.6, dmax:5.4, yTop:"良", yBot:"悪",
+      series:[ {vals:sleep, color:"var(--sleep)", dot:true} ] },
+    { title:"寝付き", unit:"時刻", plotH:40, dmin:od[0], dmax:od[1], yTop:fmtClock(od[1]), yBot:fmtClock(od[0]),
+      series:[ {vals:onset, color:"var(--sleep)", dot:true} ] }
+  ];
+  const titleH=15, gap=13;
+  let cy=6;
+  bands.forEach(b=>{ b.top=cy+titleH; b.bot=cy+titleH+b.plotH; cy=b.bot+gap; });
+  const flagTop=cy+titleH, flagBot=flagTop+12; cy=flagBot+gap;
+  const axisY=cy, Hv=axisY+14;
+  const yIn=b=> (v=> b.bot - (v-b.dmin)/(b.dmax-b.dmin)*(b.bot-b.top));
+
+  let s="";
+  bands.forEach(b=>{
+    const yf=yIn(b);
+    s+=`<text x="2" y="${b.top-4}" font-size="10" font-weight="700" fill="var(--sub)">${b.title} <tspan font-weight="400">${b.unit}</tspan></text>`;
+    s+=`<line x1="${mL}" y1="${b.top}" x2="${Wv-mR}" y2="${b.top}" stroke="var(--line)" stroke-width="1"/>`;
+    s+=`<line x1="${mL}" y1="${b.bot}" x2="${Wv-mR}" y2="${b.bot}" stroke="var(--line)" stroke-width="1"/>`;
+    s+=`<text x="${mL-5}" y="${b.top+3}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yTop}</text>`;
+    s+=`<text x="${mL-5}" y="${b.bot+3}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yBot}</text>`;
+    b.series.forEach(se=>{
+      const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
+      s+=`<path d="${seg(pts)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${se.dash?` stroke-dasharray="${se.dash}" opacity=".7"`:""}/>`;
+      if(se.dot) s+=dots(pts,se.color);
+    });
+  });
+  // 特記
+  s+=`<text x="2" y="${flagTop-4}" font-size="10" font-weight="700" fill="var(--sub)">特記</text>`;
+  keys.forEach((k,i)=>{ if(days[k]&&days[k].flags&&days[k].flags.length){ s+=`<circle cx="${xFor(i).toFixed(1)}" cy="${((flagTop+flagBot)/2).toFixed(1)}" r="3.2" fill="var(--flag)"/>`; } });
+  // x軸ラベル
+  const xstep=Math.max(1,Math.ceil(N/6));
+  const idx=[]; for(let i=0;i<N;i+=xstep) idx.push(i); if(idx[idx.length-1]!==N-1) idx.push(N-1);
+  idx.forEach(i=>{ const lab=Number(keys[i].slice(5,7))+"/"+Number(keys[i].slice(8,10)); const an= i===0?"start":(i===N-1?"end":"middle");
+    s+=`<text x="${xFor(i).toFixed(1)}" y="${axisY+9}" text-anchor="${an}" font-size="9" fill="var(--sub)">${lab}</text>`; });
+  // ホバー要素
+  s+=`<line id="bioGuide" x1="0" y1="${bands[0].top}" x2="0" y2="${flagBot}" stroke="var(--sub)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`;
+  s+=`<g id="bioHL"></g>`;
+  s+=`<rect id="bioHit" x="${mL}" y="${bands[0].top}" width="${plotW}" height="${(flagBot-bands[0].top).toFixed(1)}" fill="transparent" style="cursor:crosshair"/>`;
+
+  const svg=`<svg id="bioSvg" viewBox="0 0 ${Wv} ${Hv}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">${s}</svg>`;
+  const legend=`<div class="leg">
     <span><span class="sw" style="background:var(--weight)"></span>体重（点線=7日平均）</span>
     <span><span class="sw" style="background:var(--mood)"></span>気分</span>
     <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
     <span><span class="sw" style="background:var(--sleep)"></span>睡眠・寝付き</span></div>`;
-  $("trendBody").innerHTML=html;
-}
-function overlayPanel(plab,psub,a,b,ca,cb){
-  const W=560,H=64,padL=6,padR=6,top=8,bot=8,N=a.length,vmin=-0.3,vmax=4.3;
-  const x=i=> padL + (N===1?(W-padL-padR)/2:i*(W-padL-padR)/(N-1));
-  const y=v=> top + (1-(v-vmin)/(vmax-vmin))*(H-top-bot);
-  const pa=a.map((v,i)=>v==null?null:{x:x(i),y:y(v)});
-  const pb=b.map((v,i)=>v==null?null:{x:x(i),y:y(v)});
-  return `<div class="panel"><div class="plab">${plab}<small>${psub}</small></div>
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    <path d="${seg(pa)}" fill="none" stroke="${ca}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots(pa,ca)}
-    <path d="${seg(pb)}" fill="none" stroke="${cb}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots(pb,cb)}</svg></div>`;
-}
-function flagTicks(keys){
-  const W=560,padL=6,padR=6,N=keys.length;
-  const x=i=> padL + (N===1?(W-padL-padR)/2:i*(W-padL-padR)/(N-1));
-  let marks=""; keys.forEach((k,i)=>{ if(days[k]&&days[k].flags&&days[k].flags.length){ marks+=`<circle cx="${x(i).toFixed(1)}" cy="9" r="3.2" fill="var(--flag)"/>`; } });
-  if(!marks) return "";
-  return `<div class="panel"><div class="plab" style="font-size:11px">特記</div><svg viewBox="0 0 ${W} 18" preserveAspectRatio="none" style="height:18px">${marks}</svg></div>`;
+  $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
+
+  // ホバー配線（全指標を縦に貫いてその日の値を出す）
+  const svgEl=$("bioSvg"), tip=$("bioTip"), guide=$("bioGuide"), hl=$("bioHL"), hit=$("bioHit"), wrap=svgEl.parentNode;
+  function ptsAt(i){ let m=""; bands.forEach(b=>{ const yf=yIn(b); b.series.forEach(se=>{ if(se.dash) return; const v=se.vals[i]; if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${se.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }); return m; }
+  function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
+    if(d.weight!=null) r.push(`体重 ${d.weight}kg`);
+    if(d.mood!=null||d.stress!=null) r.push(`気分 ${d.mood!=null?FREQ_FRAC[d.mood]:"—"} ／ 緊張 ${d.stress!=null?FREQ_FRAC[d.stress]:"—"}`);
+    if(d.sleep!=null) r.push(`睡眠 ${SLEEP_LABELS[d.sleep-1]}`);
+    if(d.onset) r.push(`寝付き ${d.onset}`);
+    if(d.wake) r.push(`起床 ${d.wake}`);
+    if(d.nap) r.push(`昼寝 ${d.nap}分`);
+    if(d.flags&&d.flags.length){ const labs=d.flags.map(fk=>{ const f=settings.flags.find(x=>x.key===fk); return f?f.label:fk; }); r.push(`特記 ${labs.join("・")}`); }
+    if(r.length===1) r.push('<span style="opacity:.7">記録なし</span>');
+    return r.join("<br>"); }
+  function showAt(cx){
+    const ctm=svgEl.getScreenCTM(); if(!ctm) return;
+    const pt=svgEl.createSVGPoint(); pt.x=cx; pt.y=0;
+    const vx=pt.matrixTransform(ctm.inverse()).x;
+    let i= N<=1?0 : Math.round((vx-mL)/plotW*(N-1)); i=Math.max(0,Math.min(N-1,i));
+    const px=xFor(i);
+    guide.setAttribute("x1",px); guide.setAttribute("x2",px); guide.setAttribute("opacity","1");
+    hl.innerHTML=ptsAt(i);
+    tip.innerHTML=tipHtml(i); tip.classList.add("show");
+    const wr=wrap.getBoundingClientRect(), sr=svgEl.getBoundingClientRect();
+    const left= sr.left - wr.left + (px/Wv)*sr.width;
+    const tw=tip.offsetWidth, th=tip.offsetHeight;
+    tip.style.left=Math.max(tw/2+2, Math.min(wr.width-tw/2-2, left))+"px";
+    tip.style.top=(th+6)+"px";
+  }
+  function hide(){ guide.setAttribute("opacity","0"); hl.innerHTML=""; tip.classList.remove("show"); }
+  hit.addEventListener("pointermove",e=>showAt(e.clientX));
+  hit.addEventListener("pointerdown",e=>showAt(e.clientX));
+  hit.addEventListener("pointerleave",hide);
 }
 
 /* ---------- 設定ビュー ---------- */
