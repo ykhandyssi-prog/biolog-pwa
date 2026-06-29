@@ -1,5 +1,5 @@
 // バイオログ PWA — オフラインキャッシュ
-const CACHE = "biolog-v2";
+const CACHE = "biolog-v3";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {
@@ -14,13 +14,19 @@ self.addEventListener("activate", e => {
 });
 
 // ネットワーク優先（常に最新）→ オフライン時はキャッシュにフォールバック
+// 自分のファイル（同一オリジン）はブラウザHTTPキャッシュを迂回し、push後すぐ反映させる
 self.addEventListener("fetch", e => {
-  if (e.request.method !== "GET") return;
+  const req = e.request;
+  if (req.method !== "GET") return;
+  const sameOrigin = new URL(req.url).origin === self.location.origin;
+  const net = sameOrigin
+    ? fetch(req.url, { cache: "no-store", credentials: "same-origin" })
+    : fetch(req);
   e.respondWith(
-    fetch(e.request).then(res => {
+    net.then(res => {
       const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
       return res;
-    }).catch(() => caches.match(e.request).then(hit => hit || caches.match("./index.html")))
+    }).catch(() => caches.match(req).then(hit => hit || caches.match("./index.html")))
   );
 });
