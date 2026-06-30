@@ -1,5 +1,5 @@
 // バイオログ PWA — オフラインキャッシュ
-const CACHE = "biolog-v5";
+const CACHE = "biolog-v6";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {

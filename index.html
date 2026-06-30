@@ -12,11 +12,13 @@
     --bg:#f6f7f9; --card:#ffffff; --ink:#1f2937; --sub:#6b7280;
     --line:#e5e7eb; --accent:#0d9488; --chip:#f1f5f9; --shadow:0 1px 3px rgba(0,0,0,.08);
     --weight:#2563eb; --mood:#0d9488; --stress:#d85a30; --sleep:#7c3aed; --flag:#ba7517;
+    --onset:#db2777; --wake:#0891b2;
   }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#0f1115; --card:#1a1d23; --ink:#e5e7eb; --sub:#9ca3af;
       --line:#2a2e36; --accent:#2dd4bf; --chip:#23272f; --shadow:0 1px 3px rgba(0,0,0,.4);
-      --weight:#60a5fa; --mood:#2dd4bf; --stress:#f0997b; --sleep:#a78bfa; --flag:#f0b35b; }
+      --weight:#60a5fa; --mood:#2dd4bf; --stress:#f0997b; --sleep:#a78bfa; --flag:#f0b35b;
+      --onset:#f472b6; --wake:#22d3ee; }
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -468,15 +470,18 @@ function renderTrend(){
     { title:"睡眠", unit:"1–5", plotH:40, dmin:0.6, dmax:5.4,
       ticks:[{v:5,label:"良"},{v:3,label:"普"},{v:1,label:"悪"}],
       series:[ {vals:sleep, color:"var(--sleep)", dot:true} ] },
-    { title:"睡眠時間", unit:"就寝〜起床", plotH:56, dmin:(tn.lo!=null?tn.lo:22), dmax:(tn.hi!=null?tn.hi:32),
-      ticks:tTicks, kind:"sleepbar", onset:onset, wake:wake, color:"var(--sleep)" }
+    { title:"睡眠時間", unit:"就寝〜起床", plotH:60, dmin:(tn.lo!=null?tn.lo:22), dmax:(tn.hi!=null?tn.hi:34), invert:true,
+      ticks:tTicks, kind:"sleepbar", onset:onset, wake:wake,
+      barColor:"var(--sleep)", onsetColor:"var(--onset)", wakeColor:"var(--wake)" }
   ];
   const titleH=22, gap=15;
   let cy=6;
   bands.forEach(b=>{ b.top=cy+titleH; b.bot=cy+titleH+b.plotH; cy=b.bot+gap; });
   const flagTop=cy+titleH, flagBot=flagTop+12; cy=flagBot+gap;
   const axisY=cy, Hv=axisY+14;
-  const yIn=b=> (v=> b.bot - (v-b.dmin)/(b.dmax-b.dmin)*(b.bot-b.top));
+  const yIn=b=> (b.invert
+    ? (v=> b.top + (v-b.dmin)/(b.dmax-b.dmin)*(b.bot-b.top))
+    : (v=> b.bot - (v-b.dmin)/(b.dmax-b.dmin)*(b.bot-b.top)));
 
   let s="";
   bands.forEach(b=>{
@@ -488,13 +493,16 @@ function renderTrend(){
       s+=`<line x1="${mL}" y1="${yy.toFixed(1)}" x2="${Wv-mR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
       s+=`<text x="${mL-5}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--sub)">${t.label}</text>`; });
     if(b.kind==="sleepbar"){
-      // 就寝→起床を縦棒で結ぶ（棒の長さ＝睡眠時間）
+      // 睡眠帯：就寝(上)→起床(下)を縦棒で結ぶ（棒の長さ＝睡眠時間）
       keys.forEach((k,i)=>{ const o=b.onset[i], w=b.wake[i]; const x=xFor(i).toFixed(1);
-        if(o!=null && w!=null){
-          s+=`<line x1="${x}" y1="${yf(o).toFixed(1)}" x2="${x}" y2="${yf(w).toFixed(1)}" stroke="${b.color}" stroke-width="3.4" stroke-linecap="round" opacity=".8"/>`;
-          s+=`<circle cx="${x}" cy="${yf(o).toFixed(1)}" r="2.3" fill="${b.color}"/><circle cx="${x}" cy="${yf(w).toFixed(1)}" r="2.3" fill="${b.color}"/>`;
-        } else if(o!=null || w!=null){ const v=(o!=null?o:w); s+=`<circle cx="${x}" cy="${yf(v).toFixed(1)}" r="2.3" fill="${b.color}"/>`; }
+        if(o!=null && w!=null){ s+=`<line x1="${x}" y1="${yf(o).toFixed(1)}" x2="${x}" y2="${yf(w).toFixed(1)}" stroke="${b.barColor}" stroke-width="5" stroke-linecap="round" opacity=".38"/>`; }
       });
+      // 就寝・起床それぞれの折れ線（帯とは別色）＋端点
+      const oPts=b.onset.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
+      const wPts=b.wake.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
+      s+=`<path d="${seg(wPts)}" fill="none" stroke="${b.wakeColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      s+=`<path d="${seg(oPts)}" fill="none" stroke="${b.onsetColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      s+=dots(oPts,b.onsetColor)+dots(wPts,b.wakeColor);
     } else {
       b.series.forEach(se=>{
         const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
@@ -523,13 +531,15 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--weight)"></span>体重（点線=7日平均）</span>
     <span><span class="sw" style="background:var(--mood)"></span>気分</span>
     <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
-    <span><span class="sw" style="background:var(--sleep)"></span>睡眠・睡眠時間</span></div>`;
+    <span><span class="sw" style="background:var(--sleep)"></span>睡眠（質・帯）</span>
+    <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
+    <span><span class="sw" style="background:var(--wake)"></span>起床</span></div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
   const svgEl=$("bioSvg"), tip=$("bioTip"), guide=$("bioGuide"), hl=$("bioHL"), hit=$("bioHit"), wrap=svgEl.parentNode;
   function ptsAt(i){ let m=""; bands.forEach(b=>{ const yf=yIn(b);
-    if(b.kind==="sleepbar"){ [b.onset[i],b.wake[i]].forEach(v=>{ if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${b.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }
+    if(b.kind==="sleepbar"){ if(b.onset[i]!=null) m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(b.onset[i]).toFixed(1)}" r="3.4" fill="${b.onsetColor}" stroke="var(--card)" stroke-width="1.4"/>`; if(b.wake[i]!=null) m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(b.wake[i]).toFixed(1)}" r="3.4" fill="${b.wakeColor}" stroke="var(--card)" stroke-width="1.4"/>`; }
     else { b.series.forEach(se=>{ if(se.dash) return; const v=se.vals[i]; if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${se.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }
   }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
