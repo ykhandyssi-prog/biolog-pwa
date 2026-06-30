@@ -430,6 +430,17 @@ function movingAvg(series,win){
   return series.map((_,i)=>{ let s=0,c=0; for(let j=Math.max(0,i-win+1);j<=i;j++){ if(series[j]!=null){s+=series[j];c++;} } return c?s/c:null; });
 }
 function fmtClock(h){ const hh=((Math.floor(h)%24)+24)%24; let mm=Math.round((h-Math.floor(h))*60); if(mm===60){mm=0;} return hh+":"+pad(mm); }
+// キリのいい目盛り（lo/hi/step と tick配列）
+function niceNum(vals,count){
+  const v=vals.filter(x=>x!=null); if(!v.length) return null;
+  let mn=Math.min(...v), mx=Math.max(...v); if(mn===mx){ mn-=1; mx+=1; }
+  const span=mx-mn, raw=span/count, mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag; let step= norm<1.5?1 : norm<3?2 : norm<7?5 : 10; step*=mag;
+  const lo=Math.floor(mn/step)*step, hi=Math.ceil(mx/step)*step;
+  const ticks=[]; for(let t=lo; t<=hi+step*0.5; t+=step) ticks.push(Math.round(t*100)/100);
+  return { lo, hi, step, ticks };
+}
+function thinTicks(arr,maxN){ if(arr.length<=maxN) return arr; const st=Math.ceil((arr.length-1)/(maxN-1)); const out=[]; for(let i=0;i<arr.length;i+=st) out.push(arr[i]); if(out[out.length-1]!==arr[arr.length-1]) out.push(arr[arr.length-1]); return out; }
 function renderTrend(){
   const keys=dayKeys(rangeDays);
   if(!keys.some(k=>days[k])){ $("trendBody").innerHTML='<div class="empty">まだ記録がありません</div>'; return; }
@@ -437,21 +448,28 @@ function renderTrend(){
   const get=set=>keys.map(k=> (days[k]&&days[k][set]!=null)?days[k][set]:null);
   const weight=get("weight"), mood=get("mood"), stress=get("stress"), sleep=get("sleep");
   const onset=keys.map(k=> days[k]&&days[k].onset?onsetHours(days[k].onset):null);
+  const wake =keys.map(k=> days[k]&&days[k].wake ?onsetHours(days[k].wake) :null);
   const wma=movingAvg(weight,7);
 
-  const Wv=360, mL=42, mR=10, plotW=Wv-mL-mR;
+  const Wv=360, mL=44, mR=10, plotW=Wv-mL-mR;
   const xFor=i=> mL + (N===1? plotW/2 : i*plotW/(N-1));
-  function dyn(vals,pd){ const v=vals.filter(x=>x!=null); if(!v.length) return [0,1]; let mn=Math.min(...v),mx=Math.max(...v); if(mn===mx){mn-=1;mx+=1;} const p=(mx-mn)*pd; return [mn-p,mx+p]; }
-  const wd=dyn(weight,0.15), od=dyn(onset,0.15);
+  // キリのいい数値目盛り
+  const wn=niceNum(weight,2);
+  const times=[...onset,...wake].filter(v=>v!=null);
+  const tn=times.length? niceNum(times,4) : {lo:22,hi:32,ticks:[22,24,26,28,30,32]};
+  const wTicks = wn? thinTicks(wn.ticks,3).map(t=>({v:t,label:(Number.isInteger(t)?String(t):t.toFixed(1))})) : [];
+  const tTicks = thinTicks(tn.ticks,4).map(t=>({v:t,label:fmtClock(t)}));
   const bands=[
-    { title:"体重", unit:"kg", plotH:46, dmin:wd[0], dmax:wd[1], yTop:wd[1].toFixed(1), yBot:wd[0].toFixed(1),
+    { title:"体重", unit:"kg", plotH:46, dmin:(wn?wn.lo:0), dmax:(wn?wn.hi:1), ticks:wTicks,
       series:[ {vals:wma, color:"var(--weight)", dash:"4 3"}, {vals:weight, color:"var(--weight)", dot:true} ] },
-    { title:"気分・緊張", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3, yTop:"全", yBot:"無",
+    { title:"気分・緊張", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3,
+      ticks:[{v:4,label:"全"},{v:2,label:"½"},{v:0,label:"無"}],
       series:[ {vals:mood, color:"var(--mood)", dot:true}, {vals:stress, color:"var(--stress)", dot:true} ] },
-    { title:"睡眠", unit:"1–5", plotH:40, dmin:0.6, dmax:5.4, yTop:"良", yBot:"悪",
+    { title:"睡眠", unit:"1–5", plotH:40, dmin:0.6, dmax:5.4,
+      ticks:[{v:5,label:"良"},{v:3,label:"普"},{v:1,label:"悪"}],
       series:[ {vals:sleep, color:"var(--sleep)", dot:true} ] },
-    { title:"寝付き", unit:"時刻", plotH:40, dmin:od[0], dmax:od[1], yTop:fmtClock(od[1]), yBot:fmtClock(od[0]),
-      series:[ {vals:onset, color:"var(--sleep)", dot:true} ] }
+    { title:"睡眠時間", unit:"就寝〜起床", plotH:56, dmin:(tn.lo!=null?tn.lo:22), dmax:(tn.hi!=null?tn.hi:32),
+      ticks:tTicks, kind:"sleepbar", onset:onset, wake:wake, color:"var(--sleep)" }
   ];
   const titleH=22, gap=15;
   let cy=6;
@@ -463,24 +481,36 @@ function renderTrend(){
   let s="";
   bands.forEach(b=>{
     const yf=yIn(b);
-    // 軸名は上端罫線よりさらに上、単位は名前の右に小さく（数値ラベルと縦に被らせない）
+    // 軸名は上端よりさらに上に置き、数値ラベルと縦に被らせない
     s+=`<text x="2" y="${b.top-11}" font-size="10" font-weight="700" fill="var(--sub)">${b.title} <tspan font-weight="400">${b.unit}</tspan></text>`;
-    s+=`<line x1="${mL}" y1="${b.top}" x2="${Wv-mR}" y2="${b.top}" stroke="var(--line)" stroke-width="1"/>`;
-    s+=`<line x1="${mL}" y1="${b.bot}" x2="${Wv-mR}" y2="${b.bot}" stroke="var(--line)" stroke-width="1"/>`;
-    s+=`<text x="${mL-5}" y="${b.top+3.5}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yTop}</text>`;
-    s+=`<text x="${mL-5}" y="${b.bot+3.5}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yBot}</text>`;
-    b.series.forEach(se=>{
-      const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
-      s+=`<path d="${seg(pts)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${se.dash?` stroke-dasharray="${se.dash}" opacity=".7"`:""}/>`;
-      if(se.dot) s+=dots(pts,se.color);
-    });
+    // キリのいい目盛り（罫線＋ラベル）
+    b.ticks.forEach(t=>{ const yy=yf(t.v);
+      s+=`<line x1="${mL}" y1="${yy.toFixed(1)}" x2="${Wv-mR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+      s+=`<text x="${mL-5}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--sub)">${t.label}</text>`; });
+    if(b.kind==="sleepbar"){
+      // 就寝→起床を縦棒で結ぶ（棒の長さ＝睡眠時間）
+      keys.forEach((k,i)=>{ const o=b.onset[i], w=b.wake[i]; const x=xFor(i).toFixed(1);
+        if(o!=null && w!=null){
+          s+=`<line x1="${x}" y1="${yf(o).toFixed(1)}" x2="${x}" y2="${yf(w).toFixed(1)}" stroke="${b.color}" stroke-width="3.4" stroke-linecap="round" opacity=".8"/>`;
+          s+=`<circle cx="${x}" cy="${yf(o).toFixed(1)}" r="2.3" fill="${b.color}"/><circle cx="${x}" cy="${yf(w).toFixed(1)}" r="2.3" fill="${b.color}"/>`;
+        } else if(o!=null || w!=null){ const v=(o!=null?o:w); s+=`<circle cx="${x}" cy="${yf(v).toFixed(1)}" r="2.3" fill="${b.color}"/>`; }
+      });
+    } else {
+      b.series.forEach(se=>{
+        const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
+        s+=`<path d="${seg(pts)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${se.dash?` stroke-dasharray="${se.dash}" opacity=".7"`:""}/>`;
+        if(se.dot) s+=dots(pts,se.color);
+      });
+    }
   });
   // 特記
   s+=`<text x="2" y="${flagTop-4}" font-size="10" font-weight="700" fill="var(--sub)">特記</text>`;
   keys.forEach((k,i)=>{ if(days[k]&&days[k].flags&&days[k].flags.length){ s+=`<circle cx="${xFor(i).toFixed(1)}" cy="${((flagTop+flagBot)/2).toFixed(1)}" r="3.2" fill="var(--flag)"/>`; } });
   // x軸ラベル
   const xstep=Math.max(1,Math.ceil(N/6));
-  const idx=[]; for(let i=0;i<N;i+=xstep) idx.push(i); if(idx[idx.length-1]!==N-1) idx.push(N-1);
+  const idx=[]; for(let i=0;i<N;i+=xstep) idx.push(i);
+  // 末尾を必ず出すが、直前ラベルと近すぎるなら置き換えて重なりを防ぐ
+  if(idx[idx.length-1]!==N-1){ if(N-1-idx[idx.length-1] < xstep*0.6) idx[idx.length-1]=N-1; else idx.push(N-1); }
   idx.forEach(i=>{ const lab=Number(keys[i].slice(5,7))+"/"+Number(keys[i].slice(8,10)); const an= i===0?"start":(i===N-1?"end":"middle");
     s+=`<text x="${xFor(i).toFixed(1)}" y="${axisY+9}" text-anchor="${an}" font-size="9" fill="var(--sub)">${lab}</text>`; });
   // ホバー要素
@@ -493,18 +523,22 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--weight)"></span>体重（点線=7日平均）</span>
     <span><span class="sw" style="background:var(--mood)"></span>気分</span>
     <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
-    <span><span class="sw" style="background:var(--sleep)"></span>睡眠・寝付き</span></div>`;
+    <span><span class="sw" style="background:var(--sleep)"></span>睡眠・睡眠時間</span></div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
   const svgEl=$("bioSvg"), tip=$("bioTip"), guide=$("bioGuide"), hl=$("bioHL"), hit=$("bioHit"), wrap=svgEl.parentNode;
-  function ptsAt(i){ let m=""; bands.forEach(b=>{ const yf=yIn(b); b.series.forEach(se=>{ if(se.dash) return; const v=se.vals[i]; if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${se.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }); return m; }
+  function ptsAt(i){ let m=""; bands.forEach(b=>{ const yf=yIn(b);
+    if(b.kind==="sleepbar"){ [b.onset[i],b.wake[i]].forEach(v=>{ if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${b.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }
+    else { b.series.forEach(se=>{ if(se.dash) return; const v=se.vals[i]; if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${se.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }
+  }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
     if(d.weight!=null) r.push(`体重 ${d.weight}kg`);
     if(d.mood!=null||d.stress!=null) r.push(`気分 ${d.mood!=null?FREQ_FRAC[d.mood]:"—"} ／ 緊張 ${d.stress!=null?FREQ_FRAC[d.stress]:"—"}`);
     if(d.sleep!=null) r.push(`睡眠 ${SLEEP_LABELS[d.sleep-1]}`);
     if(d.onset) r.push(`寝付き ${d.onset}`);
     if(d.wake) r.push(`起床 ${d.wake}`);
+    if(d.onset && d.wake){ const dur=onsetHours(d.wake)-onsetHours(d.onset); if(dur>0){ const hh=Math.floor(dur), mm=Math.round((dur-hh)*60); r.push(`睡眠時間 ${hh}時間${mm?mm+"分":""}`); } }
     if(d.nap) r.push(`昼寝 ${d.nap}分`);
     if(d.flags&&d.flags.length){ const labs=d.flags.map(fk=>{ const f=settings.flags.find(x=>x.key===fk); return f?f.label:fk; }); r.push(`特記 ${labs.join("・")}`); }
     if(r.length===1) r.push('<span style="opacity:.7">記録なし</span>');
