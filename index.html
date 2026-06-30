@@ -453,7 +453,7 @@ function renderTrend(){
     { title:"寝付き", unit:"時刻", plotH:40, dmin:od[0], dmax:od[1], yTop:fmtClock(od[1]), yBot:fmtClock(od[0]),
       series:[ {vals:onset, color:"var(--sleep)", dot:true} ] }
   ];
-  const titleH=15, gap=13;
+  const titleH=22, gap=15;
   let cy=6;
   bands.forEach(b=>{ b.top=cy+titleH; b.bot=cy+titleH+b.plotH; cy=b.bot+gap; });
   const flagTop=cy+titleH, flagBot=flagTop+12; cy=flagBot+gap;
@@ -463,11 +463,12 @@ function renderTrend(){
   let s="";
   bands.forEach(b=>{
     const yf=yIn(b);
-    s+=`<text x="2" y="${b.top-4}" font-size="10" font-weight="700" fill="var(--sub)">${b.title} <tspan font-weight="400">${b.unit}</tspan></text>`;
+    // 軸名は上端罫線よりさらに上、単位は名前の右に小さく（数値ラベルと縦に被らせない）
+    s+=`<text x="2" y="${b.top-11}" font-size="10" font-weight="700" fill="var(--sub)">${b.title} <tspan font-weight="400">${b.unit}</tspan></text>`;
     s+=`<line x1="${mL}" y1="${b.top}" x2="${Wv-mR}" y2="${b.top}" stroke="var(--line)" stroke-width="1"/>`;
     s+=`<line x1="${mL}" y1="${b.bot}" x2="${Wv-mR}" y2="${b.bot}" stroke="var(--line)" stroke-width="1"/>`;
-    s+=`<text x="${mL-5}" y="${b.top+3}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yTop}</text>`;
-    s+=`<text x="${mL-5}" y="${b.bot+3}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yBot}</text>`;
+    s+=`<text x="${mL-5}" y="${b.top+3.5}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yTop}</text>`;
+    s+=`<text x="${mL-5}" y="${b.bot+3.5}" text-anchor="end" font-size="9" fill="var(--sub)">${b.yBot}</text>`;
     b.series.forEach(se=>{
       const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
       s+=`<path d="${seg(pts)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${se.dash?` stroke-dasharray="${se.dash}" opacity=".7"`:""}/>`;
@@ -508,7 +509,7 @@ function renderTrend(){
     if(d.flags&&d.flags.length){ const labs=d.flags.map(fk=>{ const f=settings.flags.find(x=>x.key===fk); return f?f.label:fk; }); r.push(`特記 ${labs.join("・")}`); }
     if(r.length===1) r.push('<span style="opacity:.7">記録なし</span>');
     return r.join("<br>"); }
-  function showAt(cx){
+  function showAt(cx, cyClient){
     const ctm=svgEl.getScreenCTM(); if(!ctm) return;
     const pt=svgEl.createSVGPoint(); pt.x=cx; pt.y=0;
     const vx=pt.matrixTransform(ctm.inverse()).x;
@@ -518,14 +519,19 @@ function renderTrend(){
     hl.innerHTML=ptsAt(i);
     tip.innerHTML=tipHtml(i); tip.classList.add("show");
     const wr=wrap.getBoundingClientRect(), sr=svgEl.getBoundingClientRect();
-    const left= sr.left - wr.left + (px/Wv)*sr.width;
-    const tw=tip.offsetWidth, th=tip.offsetHeight;
-    tip.style.left=Math.max(tw/2+2, Math.min(wr.width-tw/2-2, left))+"px";
-    tip.style.top=(th+6)+"px";
+    const gx= sr.left - wr.left + (px/Wv)*sr.width;   // ガイド線のX（wrap内）
+    const tw=tip.offsetWidth, th=tip.offsetHeight, gp=16;
+    // ガイド線（＝ハイライト点）を隠さないよう、空いている側へ寄せる
+    let left = (gx < wr.width/2) ? gx+gp : gx-gp-tw;
+    left = Math.max(2, Math.min(wr.width-tw-2, left));
+    // 縦はカーソル位置に追従（はみ出しはクランプ）
+    let top = (cyClient!=null ? cyClient-wr.top : th) - th/2;
+    top = Math.max(2, Math.min(wr.height-th-2, top));
+    tip.style.transform="none"; tip.style.left=left+"px"; tip.style.top=top+"px";
   }
   function hide(){ guide.setAttribute("opacity","0"); hl.innerHTML=""; tip.classList.remove("show"); }
-  hit.addEventListener("pointermove",e=>showAt(e.clientX));
-  hit.addEventListener("pointerdown",e=>showAt(e.clientX));
+  hit.addEventListener("pointermove",e=>showAt(e.clientX,e.clientY));
+  hit.addEventListener("pointerdown",e=>showAt(e.clientX,e.clientY));
   hit.addEventListener("pointerleave",hide);
 }
 
