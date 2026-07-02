@@ -12,13 +12,13 @@
     --bg:#f6f7f9; --card:#ffffff; --ink:#1f2937; --sub:#6b7280;
     --line:#e5e7eb; --accent:#0d9488; --chip:#f1f5f9; --shadow:0 1px 3px rgba(0,0,0,.08);
     --weight:#2563eb; --mood:#0d9488; --stress:#d85a30; --sleep:#7c3aed; --flag:#ba7517;
-    --onset:#db2777; --wake:#0891b2;
+    --onset:#db2777; --wake:#0891b2; --itch:#dc2626;
   }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#0f1115; --card:#1a1d23; --ink:#e5e7eb; --sub:#9ca3af;
       --line:#2a2e36; --accent:#2dd4bf; --chip:#23272f; --shadow:0 1px 3px rgba(0,0,0,.4);
       --weight:#60a5fa; --mood:#2dd4bf; --stress:#f0997b; --sleep:#a78bfa; --flag:#f0b35b;
-      --onset:#f472b6; --wake:#22d3ee; }
+      --onset:#f472b6; --wake:#22d3ee; --itch:#f87171; }
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -167,6 +167,7 @@
   <div id="cardEvening" class="card">
     <div class="field"><label>気分 <span class="hint">— 晴れていた時間</span></label><div class="scale" id="moodScale"></div></div>
     <div class="field"><label>緊張 <span class="hint">— 張り詰めていた時間</span></label><div class="scale" id="stressScale"></div></div>
+    <div class="field"><label>痒み <span class="hint">— 感じていた時間</span></label><div class="scale" id="itchScale"></div></div>
     <div class="field"><label>昼寝 <span class="hint">（分・任意）</span></label><input id="nap" type="number" inputmode="numeric" step="10" min="0" placeholder="0" /></div>
     <div class="field"><label>特記 <span class="hint">— 該当だけ</span></label><div class="chips" id="flagChips"></div></div>
     <div class="field">
@@ -276,7 +277,7 @@ const DEFAULTS = {
 const DATA_PATH = "99_Attachments/biolog/data.md";
 
 /* ---------- 状態 ---------- */
-let days = {};            // { "YYYY-MM-DD": {date,weight,sleep,onset,wake,mood,stress,nap,flags:[],memo,...} }
+let days = {};            // { "YYYY-MM-DD": {date,weight,sleep,onset,wake,mood,stress,itch,nap,flags:[],memo,...} }
 let settings = JSON.parse(JSON.stringify(DEFAULTS));
 let curDate = logicalTodayStr();
 let cardMode = (new Date().getHours()>=5 && new Date().getHours()<17) ? "morning" : "evening";
@@ -375,7 +376,7 @@ function renderRecord(){
   $("cardEvening").style.display = cardMode==="evening"?"block":"none";
   // done marks
   const mDone = (d.weight!=null||d.sleep!=null||d.onset||d.wake);
-  const eDone = (d.mood!=null||d.stress!=null);
+  const eDone = (d.mood!=null||d.stress!=null||d.itch!=null);
   $("doneM").textContent = mDone?"●":"";
   $("doneE").textContent = eDone?"●":"";
   // morning
@@ -388,6 +389,7 @@ function renderRecord(){
   // evening
   buildScale("moodScale", FREQ_LABELS, FREQ_FRAC, d.mood!=null?d.mood:null, i=>{ patchDay({mood:i, loggedEveningAt:new Date().toISOString()}); });
   buildScale("stressScale", FREQ_LABELS, FREQ_FRAC, d.stress!=null?d.stress:null, i=>{ patchDay({stress:i, loggedEveningAt:new Date().toISOString()}); });
+  buildScale("itchScale", FREQ_LABELS, FREQ_FRAC, d.itch!=null?d.itch:null, i=>{ patchDay({itch:i, loggedEveningAt:new Date().toISOString()}); });
   $("nap").value = d.nap!=null ? d.nap : "";
   renderFlags(d);
   const mt=$("memo"); mt.value=d.memo||"";
@@ -408,9 +410,9 @@ function renderFlags(d){
 }
 function sendToObsidian(){
   const d=days[curDate];
-  if(!d || (d.weight==null&&d.sleep==null&&d.mood==null&&d.stress==null)){ toast("記録がありません"); return; }
+  if(!d || (d.weight==null&&d.sleep==null&&d.mood==null&&d.stress==null&&d.itch==null)){ toast("記録がありません"); return; }
   const obj={ date:curDate };
-  ["weight","sleep","onset","wake","mood","stress","nap","memo"].forEach(k=>{ if(d[k]!=null&&d[k]!=="") obj[k]=d[k]; });
+  ["weight","sleep","onset","wake","mood","stress","itch","nap","memo"].forEach(k=>{ if(d[k]!=null&&d[k]!=="") obj[k]=d[k]; });
   if(d.flags&&d.flags.length) obj.flags=d.flags;
   const line=JSON.stringify(obj);
   const params=[];
@@ -448,7 +450,7 @@ function renderTrend(){
   if(!keys.some(k=>days[k])){ $("trendBody").innerHTML='<div class="empty">まだ記録がありません</div>'; return; }
   const N=keys.length;
   const get=set=>keys.map(k=> (days[k]&&days[k][set]!=null)?days[k][set]:null);
-  const weight=get("weight"), mood=get("mood"), stress=get("stress"), sleep=get("sleep");
+  const weight=get("weight"), mood=get("mood"), stress=get("stress"), itch=get("itch"), sleep=get("sleep");
   const onset=keys.map(k=> days[k]&&days[k].onset?onsetHours(days[k].onset):null);
   const wake =keys.map(k=> days[k]&&days[k].wake ?onsetHours(days[k].wake) :null);
   const wma=movingAvg(weight,7);
@@ -464,9 +466,9 @@ function renderTrend(){
   const bands=[
     { title:"体重", unit:"kg", plotH:46, dmin:(wn?wn.lo:0), dmax:(wn?wn.hi:1), ticks:wTicks,
       series:[ {vals:wma, color:"var(--weight)", dash:"4 3"}, {vals:weight, color:"var(--weight)", dot:true} ] },
-    { title:"気分・緊張", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3,
+    { title:"気分・緊張・痒み", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3,
       ticks:[{v:4,label:"全"},{v:2,label:"½"},{v:0,label:"無"}],
-      series:[ {vals:mood, color:"var(--mood)", dot:true}, {vals:stress, color:"var(--stress)", dot:true} ] },
+      series:[ {vals:mood, color:"var(--mood)", dot:true}, {vals:stress, color:"var(--stress)", dot:true}, {vals:itch, color:"var(--itch)", dot:true} ] },
     { title:"睡眠", unit:"1–5", plotH:40, dmin:0.6, dmax:5.4,
       ticks:[{v:5,label:"良"},{v:3,label:"普"},{v:1,label:"悪"}],
       series:[ {vals:sleep, color:"var(--sleep)", dot:true} ] },
@@ -531,6 +533,7 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--weight)"></span>体重（点線=7日平均）</span>
     <span><span class="sw" style="background:var(--mood)"></span>気分</span>
     <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
+    <span><span class="sw" style="background:var(--itch)"></span>痒み</span>
     <span><span class="sw" style="background:var(--sleep)"></span>睡眠（質・帯）</span>
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
     <span><span class="sw" style="background:var(--wake)"></span>起床</span></div>`;
@@ -544,7 +547,7 @@ function renderTrend(){
   }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
     if(d.weight!=null) r.push(`体重 ${d.weight}kg`);
-    if(d.mood!=null||d.stress!=null) r.push(`気分 ${d.mood!=null?FREQ_FRAC[d.mood]:"—"} ／ 緊張 ${d.stress!=null?FREQ_FRAC[d.stress]:"—"}`);
+    if(d.mood!=null||d.stress!=null||d.itch!=null) r.push(`気分 ${d.mood!=null?FREQ_FRAC[d.mood]:"—"} ／ 緊張 ${d.stress!=null?FREQ_FRAC[d.stress]:"—"} ／ 痒み ${d.itch!=null?FREQ_FRAC[d.itch]:"—"}`);
     if(d.sleep!=null) r.push(`睡眠 ${SLEEP_LABELS[d.sleep-1]}`);
     if(d.onset) r.push(`寝付き ${d.onset}`);
     if(d.wake) r.push(`起床 ${d.wake}`);
