@@ -482,7 +482,7 @@ function renderTrend(){
       ticks:tTicks, kind:"sleepbar", onset:onset, wake:wake,
       barColor:"var(--sleep)", onsetColor:"var(--onset)", wakeColor:"var(--wake)" },
     { title:"睡眠時間（合計）", unit:"時間・昼寝込み", plotH:44, dmin:totn.lo, dmax:totn.hi,
-      ticks:totTicks, kind:"sleeptotal", night:nightHours, nap:napHours, tma:tma,
+      ticks:totTicks, kind:"sleeptotal", night:nightHours, nap:napHours, tma:tma, ref:7,
       nightColor:"var(--sleep)", napColor:"var(--nap)" }
   ];
   const titleH=22, gap=15;
@@ -526,6 +526,11 @@ function renderTrend(){
       });
       const tPts=b.tma.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
       s+=`<path d="${seg(tPts)}" fill="none" stroke="${b.nightColor}" stroke-width="1.6" stroke-dasharray="4 3" opacity=".6"/>`;
+      if(b.ref!=null && b.ref>=b.dmin && b.ref<=b.dmax){
+        const ry=yf(b.ref);
+        s+=`<line x1="${mL}" y1="${ry.toFixed(1)}" x2="${Wv-mR}" y2="${ry.toFixed(1)}" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".85"/>`;
+        s+=`<text x="${Wv-mR}" y="${(ry-2).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--accent)">目安${b.ref}h</text>`;
+      }
     } else {
       b.series.forEach(se=>{
         const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
@@ -555,10 +560,11 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--mood)"></span>気分</span>
     <span><span class="sw" style="background:var(--stress)"></span>緊張</span>
     <span><span class="sw" style="background:var(--itch)"></span>痒み</span>
-    <span><span class="sw" style="background:var(--sleep)"></span>睡眠（質・帯）</span>
+    <span><span class="sw" style="background:var(--sleep)"></span>睡眠（質・帯／合計棒の夜間分・点線=7日平均）</span>
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
     <span><span class="sw" style="background:var(--wake)"></span>起床</span>
-    <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計に積み上げ）</span></div>`;
+    <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計棒の積み上げ分）</span>
+    <span><span class="sw" style="background:var(--accent)"></span>目安7時間</span></div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
