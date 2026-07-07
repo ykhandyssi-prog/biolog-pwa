@@ -12,13 +12,13 @@
     --bg:#f6f7f9; --card:#ffffff; --ink:#1f2937; --sub:#6b7280;
     --line:#e5e7eb; --accent:#0d9488; --chip:#f1f5f9; --shadow:0 1px 3px rgba(0,0,0,.08);
     --weight:#2563eb; --mood:#0d9488; --stress:#d85a30; --sleep:#7c3aed; --flag:#ba7517;
-    --onset:#db2777; --wake:#0891b2; --itch:#dc2626;
+    --onset:#db2777; --wake:#0891b2; --itch:#dc2626; --nap:#c084fc;
   }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#0f1115; --card:#1a1d23; --ink:#e5e7eb; --sub:#9ca3af;
       --line:#2a2e36; --accent:#2dd4bf; --chip:#23272f; --shadow:0 1px 3px rgba(0,0,0,.4);
       --weight:#60a5fa; --mood:#2dd4bf; --stress:#f0997b; --sleep:#a78bfa; --flag:#f0b35b;
-      --onset:#f472b6; --wake:#22d3ee; --itch:#f87171; }
+      --onset:#f472b6; --wake:#22d3ee; --itch:#f87171; --nap:#e9d5ff; }
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -454,6 +454,10 @@ function renderTrend(){
   const onset=keys.map(k=> days[k]&&days[k].onset?onsetHours(days[k].onset):null);
   const wake =keys.map(k=> days[k]&&days[k].wake ?onsetHours(days[k].wake) :null);
   const wma=movingAvg(weight,7);
+  const nightHours=keys.map((k,i)=> (onset[i]!=null&&wake[i]!=null)? (wake[i]-onset[i]) : null);
+  const napHours=keys.map(k=> (days[k]&&days[k].nap!=null)? days[k].nap/60 : null);
+  const totalHours=keys.map((k,i)=> nightHours[i]!=null? nightHours[i]+(napHours[i]||0) : napHours[i]);
+  const tma=movingAvg(totalHours,7);
 
   const Wv=360, mL=44, mR=10, plotW=Wv-mL-mR;
   const xFor=i=> mL + (N===1? plotW/2 : i*plotW/(N-1));
@@ -461,8 +465,10 @@ function renderTrend(){
   const wn=niceNum(weight,2);
   const times=[...onset,...wake].filter(v=>v!=null);
   const tn=times.length? niceNum(times,4) : {lo:22,hi:32,ticks:[22,24,26,28,30,32]};
+  const totn = totalHours.some(v=>v!=null) ? niceNum([0,...totalHours],3) : {lo:0,hi:10,ticks:[0,5,10]};
   const wTicks = wn? thinTicks(wn.ticks,3).map(t=>({v:t,label:(Number.isInteger(t)?String(t):t.toFixed(1))})) : [];
   const tTicks = thinTicks(tn.ticks,4).map(t=>({v:t,label:fmtClock(t)}));
+  const totTicks = thinTicks(totn.ticks,3).map(t=>({v:t,label:(Number.isInteger(t)?String(t):t.toFixed(1))}));
   const bands=[
     { title:"体重", unit:"kg", plotH:46, dmin:(wn?wn.lo:0), dmax:(wn?wn.hi:1), ticks:wTicks,
       series:[ {vals:wma, color:"var(--weight)", dash:"4 3"}, {vals:weight, color:"var(--weight)", dot:true} ] },
@@ -474,7 +480,10 @@ function renderTrend(){
       series:[ {vals:sleep, color:"var(--sleep)", dot:true} ] },
     { title:"睡眠時間", unit:"就寝〜起床", plotH:60, dmin:(tn.lo!=null?tn.lo:22), dmax:(tn.hi!=null?tn.hi:34), invert:true,
       ticks:tTicks, kind:"sleepbar", onset:onset, wake:wake,
-      barColor:"var(--sleep)", onsetColor:"var(--onset)", wakeColor:"var(--wake)" }
+      barColor:"var(--sleep)", onsetColor:"var(--onset)", wakeColor:"var(--wake)" },
+    { title:"睡眠時間（合計）", unit:"時間・昼寝込み", plotH:44, dmin:totn.lo, dmax:totn.hi,
+      ticks:totTicks, kind:"sleeptotal", night:nightHours, nap:napHours, tma:tma,
+      nightColor:"var(--sleep)", napColor:"var(--nap)" }
   ];
   const titleH=22, gap=15;
   let cy=6;
@@ -505,6 +514,18 @@ function renderTrend(){
       s+=`<path d="${seg(wPts)}" fill="none" stroke="${b.wakeColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
       s+=`<path d="${seg(oPts)}" fill="none" stroke="${b.onsetColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
       s+=dots(oPts,b.onsetColor)+dots(wPts,b.wakeColor);
+    } else if(b.kind==="sleeptotal"){
+      // 合計睡眠：夜間睡眠を土台に、昼寝分を上に積み上げる
+      keys.forEach((k,i)=>{ const n=b.night[i], p=b.nap[i]; const x=xFor(i).toFixed(1);
+        if(n!=null){
+          s+=`<line x1="${x}" y1="${yf(0).toFixed(1)}" x2="${x}" y2="${yf(n).toFixed(1)}" stroke="${b.nightColor}" stroke-width="5" stroke-linecap="round" opacity=".7"/>`;
+          if(p){ s+=`<line x1="${x}" y1="${yf(n).toFixed(1)}" x2="${x}" y2="${yf(n+p).toFixed(1)}" stroke="${b.napColor}" stroke-width="5" stroke-linecap="round" opacity=".85"/>`; }
+        } else if(p){
+          s+=`<line x1="${x}" y1="${yf(0).toFixed(1)}" x2="${x}" y2="${yf(p).toFixed(1)}" stroke="${b.napColor}" stroke-width="5" stroke-linecap="round" opacity=".85"/>`;
+        }
+      });
+      const tPts=b.tma.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
+      s+=`<path d="${seg(tPts)}" fill="none" stroke="${b.nightColor}" stroke-width="1.6" stroke-dasharray="4 3" opacity=".6"/>`;
     } else {
       b.series.forEach(se=>{
         const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
@@ -536,13 +557,15 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--itch)"></span>痒み</span>
     <span><span class="sw" style="background:var(--sleep)"></span>睡眠（質・帯）</span>
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
-    <span><span class="sw" style="background:var(--wake)"></span>起床</span></div>`;
+    <span><span class="sw" style="background:var(--wake)"></span>起床</span>
+    <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計に積み上げ）</span></div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
   const svgEl=$("bioSvg"), tip=$("bioTip"), guide=$("bioGuide"), hl=$("bioHL"), hit=$("bioHit"), wrap=svgEl.parentNode;
   function ptsAt(i){ let m=""; bands.forEach(b=>{ const yf=yIn(b);
     if(b.kind==="sleepbar"){ if(b.onset[i]!=null) m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(b.onset[i]).toFixed(1)}" r="3.4" fill="${b.onsetColor}" stroke="var(--card)" stroke-width="1.4"/>`; if(b.wake[i]!=null) m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(b.wake[i]).toFixed(1)}" r="3.4" fill="${b.wakeColor}" stroke="var(--card)" stroke-width="1.4"/>`; }
+    else if(b.kind==="sleeptotal"){ const n=b.night[i], p=b.nap[i]; if(n!=null||p!=null){ const top=(n||0)+(p||0); m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(top).toFixed(1)}" r="3.4" fill="${b.napColor}" stroke="var(--card)" stroke-width="1.4"/>`; if(n!=null && p) m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(n).toFixed(1)}" r="3.4" fill="${b.nightColor}" stroke="var(--card)" stroke-width="1.4"/>`; } }
     else { b.series.forEach(se=>{ if(se.dash) return; const v=se.vals[i]; if(v==null) return; m+=`<circle cx="${xFor(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.4" fill="${se.color}" stroke="var(--card)" stroke-width="1.4"/>`; }); }
   }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
@@ -551,8 +574,10 @@ function renderTrend(){
     if(d.sleep!=null) r.push(`睡眠 ${SLEEP_LABELS[d.sleep-1]}`);
     if(d.onset) r.push(`寝付き ${d.onset}`);
     if(d.wake) r.push(`起床 ${d.wake}`);
-    if(d.onset && d.wake){ const dur=onsetHours(d.wake)-onsetHours(d.onset); if(dur>0){ const hh=Math.floor(dur), mm=Math.round((dur-hh)*60); r.push(`睡眠時間 ${hh}時間${mm?mm+"分":""}`); } }
+    let nightDur=null;
+    if(d.onset && d.wake){ nightDur=onsetHours(d.wake)-onsetHours(d.onset); if(nightDur>0){ const hh=Math.floor(nightDur), mm=Math.round((nightDur-hh)*60); r.push(`睡眠時間 ${hh}時間${mm?mm+"分":""}`); } }
     if(d.nap) r.push(`昼寝 ${d.nap}分`);
+    if(d.nap){ const total=(nightDur>0?nightDur:0)+d.nap/60; const hh=Math.floor(total), mm=Math.round((total-hh)*60); r.push(`合計睡眠 ${hh}時間${mm?mm+"分":""}（昼寝${d.nap}分含む）`); }
     if(d.flags&&d.flags.length){ const labs=d.flags.map(fk=>{ const f=settings.flags.find(x=>x.key===fk); return f?f.label:fk; }); r.push(`特記 ${labs.join("・")}`); }
     if(r.length===1) r.push('<span style="opacity:.7">記録なし</span>');
     return r.join("<br>"); }
