@@ -462,7 +462,8 @@ function renderTrend(){
   const Wv=360, mL=44, mR=10, plotW=Wv-mL-mR;
   const xFor=i=> mL + (N===1? plotW/2 : i*plotW/(N-1));
   // キリのいい数値目盛り
-  const wn=niceNum(weight,2);
+  const wref=57; // 適正体重（BMI22×1.61m²）。軸域に含めて基準線を常に見せる
+  const wn=weight.some(v=>v!=null)? niceNum([...weight,wref],2) : niceNum(weight,2);
   const times=[...onset,...wake].filter(v=>v!=null);
   const tn=times.length? niceNum(times,4) : {lo:22,hi:32,ticks:[22,24,26,28,30,32]};
   const totn = totalHours.some(v=>v!=null) ? niceNum([0,...totalHours],3) : {lo:0,hi:10,ticks:[0,5,10]};
@@ -470,7 +471,7 @@ function renderTrend(){
   const tTicks = thinTicks(tn.ticks,4).map(t=>({v:t,label:fmtClock(t)}));
   const totTicks = thinTicks(totn.ticks,3).map(t=>({v:t,label:(Number.isInteger(t)?String(t):t.toFixed(1))}));
   const bands=[
-    { title:"体重", unit:"kg", plotH:46, dmin:(wn?wn.lo:0), dmax:(wn?wn.hi:1), ticks:wTicks,
+    { title:"体重", unit:"kg", plotH:60, dmin:(wn?wn.lo:0), dmax:(wn?wn.hi:1), ticks:wTicks, ref:wref,
       series:[ {vals:wma, color:"var(--weight)", dash:"4 3"}, {vals:weight, color:"var(--weight)", dot:true} ] },
     { title:"気分・緊張・痒み", unit:"0–4", plotH:46, dmin:-0.3, dmax:4.3,
       ticks:[{v:4,label:"全"},{v:2,label:"½"},{v:0,label:"無"}],
@@ -526,17 +527,18 @@ function renderTrend(){
       });
       const tPts=b.tma.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
       s+=`<path d="${seg(tPts)}" fill="none" stroke="${b.nightColor}" stroke-width="1.6" stroke-dasharray="4 3" opacity=".6"/>`;
-      if(b.ref!=null && b.ref>=b.dmin && b.ref<=b.dmax){
-        const ry=yf(b.ref);
-        s+=`<line x1="${mL}" y1="${ry.toFixed(1)}" x2="${Wv-mR}" y2="${ry.toFixed(1)}" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".85"/>`;
-        s+=`<text x="${mL-5}" y="${(ry+3.5).toFixed(1)}" text-anchor="end" font-size="9" font-weight="700" fill="var(--accent)">${b.ref}</text>`;
-      }
     } else {
       b.series.forEach(se=>{
         const pts=se.vals.map((v,i)=> v==null?null:{x:xFor(i),y:yf(v)});
         s+=`<path d="${seg(pts)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${se.dash?` stroke-dasharray="${se.dash}" opacity=".7"`:""}/>`;
         if(se.dot) s+=dots(pts,se.color);
       });
+    }
+    // 目安線（睡眠7h・体重57kg）：refを持つ帯に共通で引き、Y軸に太字ラベル
+    if(b.ref!=null && b.ref>=b.dmin && b.ref<=b.dmax){
+      const ry=yf(b.ref);
+      s+=`<line x1="${mL}" y1="${ry.toFixed(1)}" x2="${Wv-mR}" y2="${ry.toFixed(1)}" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".85"/>`;
+      s+=`<text x="${mL-5}" y="${(ry+3.5).toFixed(1)}" text-anchor="end" font-size="9" font-weight="700" fill="var(--accent)">${b.ref}</text>`;
     }
   });
   // 特記
@@ -564,7 +566,7 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
     <span><span class="sw" style="background:var(--wake)"></span>起床</span>
     <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計棒の積み上げ分）</span>
-    <span><span class="sw" style="background:var(--accent)"></span>目安7時間</span></div>`;
+    <span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg）</span></div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
