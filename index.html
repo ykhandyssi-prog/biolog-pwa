@@ -60,6 +60,7 @@
   .mini{ border:1px solid var(--line); background:var(--card); color:var(--sub);
     border-radius:8px; padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer; flex:none; }
   .mini.wide{ width:100%; padding:9px; }
+  .mini.on{ border-color:var(--accent); color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,transparent); }
   .save{ width:100%; border:none; background:var(--accent); color:#fff; font-weight:700;
     padding:14px; border-radius:12px; font-size:16px; cursor:pointer; margin-top:14px; }
   .save:active{ opacity:.85; }
@@ -181,10 +182,13 @@
 
 <!-- ========== 推移 ========== -->
 <section id="v-trend" class="view">
-  <div class="seg" id="rangeSeg">
-    <button data-days="14">2週</button>
-    <button class="on" data-days="30">1か月</button>
-    <button data-days="90">3か月</button>
+  <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:14px">
+    <div class="seg" id="rangeSeg" style="flex:1;margin-bottom:0">
+      <button data-days="14">2週</button>
+      <button class="on" data-days="30">1か月</button>
+      <button data-days="90">3か月</button>
+    </div>
+    <button class="mini" id="refToggle" type="button" title="目安線の表示切替">目安線</button>
   </div>
   <div class="card" id="trendCard">
     <div id="trendBody"></div>
@@ -282,6 +286,7 @@ let settings = JSON.parse(JSON.stringify(DEFAULTS));
 let curDate = logicalTodayStr();
 let cardMode = (new Date().getHours()>=5 && new Date().getHours()<17) ? "morning" : "evening";
 let rangeDays = 30;
+let showRef = localStorage.getItem("bioShowRef") !== "0"; // 目安線（睡眠7h・体重57kg）の表示。既定ON・端末ごとに記憶
 let uid = null;
 let unsubDays = null, unsubSettings = null;
 
@@ -462,8 +467,8 @@ function renderTrend(){
   const Wv=360, mL=44, mR=10, plotW=Wv-mL-mR;
   const xFor=i=> mL + (N===1? plotW/2 : i*plotW/(N-1));
   // キリのいい数値目盛り
-  const wref=57; // 適正体重（BMI22×1.61m²）。軸域に含めて基準線を常に見せる
-  const wn=weight.some(v=>v!=null)? niceNum([...weight,wref],2) : niceNum(weight,2);
+  const wref=57; // 適正体重（BMI22×1.61m²）。目安線ON時は軸域に含めて常に見せる
+  const wn=(showRef && weight.some(v=>v!=null))? niceNum([...weight,wref],2) : niceNum(weight,2);
   const times=[...onset,...wake].filter(v=>v!=null);
   const tn=times.length? niceNum(times,4) : {lo:22,hi:32,ticks:[22,24,26,28,30,32]};
   const totn = totalHours.some(v=>v!=null) ? niceNum([0,...totalHours],3) : {lo:0,hi:10,ticks:[0,5,10]};
@@ -534,8 +539,8 @@ function renderTrend(){
         if(se.dot) s+=dots(pts,se.color);
       });
     }
-    // 目安線（睡眠7h・体重57kg）：refを持つ帯に共通で引き、Y軸に太字ラベル
-    if(b.ref!=null && b.ref>=b.dmin && b.ref<=b.dmax){
+    // 目安線（睡眠7h・体重57kg）：refを持つ帯に共通で引き、Y軸に太字ラベル。トグルでON/OFF
+    if(showRef && b.ref!=null && b.ref>=b.dmin && b.ref<=b.dmax){
       const ry=yf(b.ref);
       s+=`<line x1="${mL}" y1="${ry.toFixed(1)}" x2="${Wv-mR}" y2="${ry.toFixed(1)}" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".85"/>`;
       s+=`<text x="${mL-5}" y="${(ry+3.5).toFixed(1)}" text-anchor="end" font-size="9" font-weight="700" fill="var(--accent)">${b.ref}</text>`;
@@ -566,7 +571,7 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
     <span><span class="sw" style="background:var(--wake)"></span>起床</span>
     <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計棒の積み上げ分）</span>
-    <span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg）</span></div>`;
+    ${showRef?'<span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg）</span>':""}</div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
@@ -681,6 +686,8 @@ function bindUI(){
   $("memo").addEventListener("change",()=>patchDay({memo:$("memo").value.trim(), loggedEveningAt:new Date().toISOString()}));
   $("sendBtn").onclick=sendToObsidian;
   $("rangeSeg").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ rangeDays=Number(b.dataset.days); $("rangeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); renderTrend(); }; });
+  $("refToggle").classList.toggle("on",showRef);
+  $("refToggle").onclick=()=>{ showRef=!showRef; localStorage.setItem("bioShowRef",showRef?"1":"0"); $("refToggle").classList.toggle("on",showRef); renderTrend(); };
   $("vaultName").addEventListener("change",()=>{ settings.vaultName=$("vaultName").value.trim(); saveSettings(); });
   $("addFlagBtn").onclick=addFlag;
   $("expJson").onclick=exportJson;
