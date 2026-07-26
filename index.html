@@ -52,11 +52,15 @@
   .scale .opt .frac{ display:block; font-size:11px; color:var(--sub); margin-top:2px; }
   .scale .opt.on{ border:2px solid var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); color:var(--accent); font-weight:600; }
   .scale .opt.on .frac{ color:var(--accent); }
-  /* chips */
-  .chips{ display:flex; flex-wrap:wrap; gap:7px; }
-  .chip{ border:1px solid var(--line); background:var(--bg); color:var(--sub);
-    border-radius:10px; padding:7px 13px; font-size:13px; cursor:pointer; }
-  .chip.on{ border:2px solid var(--flag); background:color-mix(in srgb,var(--flag) 14%,transparent); color:var(--flag); font-weight:600; }
+  /* flag rows (forced-choice yes/no, replaces check-all chips) */
+  .flagrow{ display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 0; border-bottom:1px solid var(--line); }
+  .flagrow:last-child{ border-bottom:none; }
+  .flagrow .flagname{ font-size:14px; }
+  .yn{ display:flex; gap:6px; flex:none; }
+  .yn .ynopt{ border:1px solid var(--line); background:var(--bg); color:var(--sub);
+    border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; min-width:52px; }
+  .yn .ynopt.on{ border:2px solid var(--flag); background:color-mix(in srgb,var(--flag) 14%,transparent); color:var(--flag); font-weight:600; }
   .mini{ border:1px solid var(--line); background:var(--card); color:var(--sub);
     border-radius:8px; padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer; flex:none; }
   .mini.wide{ width:100%; padding:9px; }
@@ -177,7 +181,7 @@
     <div class="field"><label>緊張 <span class="hint">— 張り詰めていた時間</span></label><div class="scale" id="stressScale"></div></div>
     <div class="field"><label>痒み <span class="hint">— 感じていた時間</span></label><div class="scale" id="itchScale"></div></div>
     <div class="field"><label>昼寝 <span class="hint">（分・任意）</span></label><input id="nap" type="number" inputmode="numeric" step="10" min="0" placeholder="0" /></div>
-    <div class="field"><label>特記 <span class="hint">— 該当だけ</span></label><div class="chips" id="flagChips"></div></div>
+    <div class="field"><label>特記 <span class="hint">— あり/なしで回答</span> <span class="hint" id="flagProgress"></span></label><div id="flagChips"></div></div>
     <div class="field">
       <button class="mini wide" id="memoToggle" type="button">＋ ひとこと</button>
       <textarea id="memo" style="display:none;margin-top:8px" placeholder="任意（睡眠の事情なども）"></textarea>
@@ -415,17 +419,34 @@ function renderRecord(){
   if(d.memo){ mt.style.display="block"; }
 }
 function renderFlags(d){
+  // 強制選択方式（Y/N）。CATA（該当だけタップ）は見落とし（weak satisficing）が
+  // 起きやすいとの知見（Smyth et al. 2006, POQ）に基づき、全項目に明示回答させる。
   const wrap=$("flagChips"); wrap.innerHTML="";
   const on=new Set(d.flags||[]);
+  const reviewed=new Set(d.flagsReviewed||[]);
   settings.flags.forEach(f=>{
-    const c=document.createElement("div"); c.className="chip"+(on.has(f.key)?" on":"");
-    c.textContent=f.label; c.onclick=()=>{
-      const set=new Set((curDay().flags)||[]);
-      if(set.has(f.key)) set.delete(f.key); else set.add(f.key);
-      patchDay({ flags:[...set], loggedEveningAt:new Date().toISOString() });
-    };
-    wrap.appendChild(c);
+    const row=document.createElement("div"); row.className="flagrow";
+    const isOn=on.has(f.key), isReviewed=reviewed.has(f.key);
+    row.innerHTML = `<span class="flagname">${esc(f.label)}</span>`+
+      `<div class="yn">`+
+      `<button type="button" class="ynopt${isReviewed&&!isOn?" on":""}" data-v="no">なし</button>`+
+      `<button type="button" class="ynopt${isReviewed&&isOn?" on":""}" data-v="yes">あり</button>`+
+      `</div>`;
+    row.querySelectorAll(".ynopt").forEach(btn=>{
+      btn.onclick=()=>{
+        const wantOn = btn.dataset.v==="yes";
+        const flagSet=new Set((curDay().flags)||[]);
+        const revSet=new Set((curDay().flagsReviewed)||[]);
+        if(wantOn) flagSet.add(f.key); else flagSet.delete(f.key);
+        revSet.add(f.key);
+        patchDay({ flags:[...flagSet], flagsReviewed:[...revSet], loggedEveningAt:new Date().toISOString() });
+      };
+    });
+    wrap.appendChild(row);
   });
+  const total=settings.flags.length;
+  const done=settings.flags.filter(f=>reviewed.has(f.key)).length;
+  $("flagProgress").textContent = total ? `${done}/${total} 確認済み` : "";
 }
 function sendToObsidian(){
   const d=days[curDate];
