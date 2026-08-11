@@ -218,7 +218,7 @@
       <label>Vault名（Advanced URIで使う）</label>
       <input id="vaultName" type="text" placeholder="例: yk-Obsidian" />
     </div>
-    <p class="muted">「Obsidianへ送る」で <code>99_Attachments/biolog/data.md</code> に1日1行を追記します。Obsidianに Advanced URI プラグインが必要です。</p>
+    <p class="muted">「Obsidianへ送る」で <code>99_Attachments/biolog/biolog.md</code> に1日1行を追記します。Obsidianに Advanced URI プラグインが必要です。</p>
   </div>
   <div class="card">
     <h3 class="sec">特記フラグ</h3>
@@ -289,7 +289,7 @@ const DEFAULTS = {
   ],
   vaultName: ""
 };
-const DATA_PATH = "99_Attachments/biolog/data.md";
+const DATA_PATH = "99_Attachments/biolog/biolog.md";
 
 /* ---------- 状態 ---------- */
 let days = {};            // { "YYYY-MM-DD": {date,weight,walkMin,sleep,onset,wake,mood,stress,itch,nap,flags:[],memo,...} }

@@ -20,7 +20,7 @@
 
 ## エクスポート（二本立て）
 - Firestore＝アプリ本体（同期・グラフ）
-- Advanced URI＝「Obsidianへ送る」で `99_Attachments/biolog/data.md` に1日1行(JSON)を追記 → Obsidian Sync
+- Advanced URI＝「Obsidianへ送る」で `99_Attachments/biolog/biolog.md` に1日1行(JSON)を追記 → Obsidian Sync
 - 保険としてJSON書き出しも有り
 
 ## セットアップ（初回・本人）※2026-06-26 構築済み
