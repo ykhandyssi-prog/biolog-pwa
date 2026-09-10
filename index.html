@@ -562,14 +562,17 @@ function renderTrend(){
       ticks:totTicks, kind:"sleeptotal", night:nightHours, nap:napHours, tma:tma, ref:7,
       nightColor:"var(--sleep)", napColor:"var(--nap)" },
     { title:"歩数", unit:"歩", plotH:44, dmin:(stn?stn.lo:0), dmax:(stn?stn.hi:10000), ticks:stTicks,
+      hideIfEmpty:!stn,
       series:[ {vals:stma, color:"var(--steps)", dash:"4 3"}, {vals:steps, color:"var(--steps)", dot:true} ] },
     // 摂取カロリー：正本は calorie-log で、ここに来る kcal/kcalTarget は import_calorie.py が
     // Firestore へ書いた最小複製。目標は TDEE 引き直しのたびに変わりうるので階段線で描く。
     { title:"摂取カロリー", unit:"kcal", plotH:44, dmin:(kn?kn.lo:0), dmax:(kn?kn.hi:3000), ticks:kTicks,
-      refLabel:(showRef?kLatest:null),
+      hideIfEmpty:!kn, refLabel:(showRef?kLatest:null),
       series:[ ...(showRef&&kLatest!=null? [{vals:kcalTarget, color:"var(--accent)", dash:"2 3", step:true}] : []),
                {vals:kma, color:"var(--kcal)", dash:"4 3"}, {vals:kcal, color:"var(--kcal)", dot:true} ] }
   ];
+  // データが1日も無い帯は出さない（空の枠だけが並ぶのを避ける）。新項目は記録が始まった日に現れる。
+  for(let i=bands.length-1;i>=0;i--){ if(bands[i].hideIfEmpty) bands.splice(i,1); }
   const titleH=22, gap=15;
   let cy=6;
   bands.forEach(b=>{ b.top=cy+titleH; b.bot=cy+titleH+b.plotH; cy=b.bot+gap; });
@@ -656,9 +659,9 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--onset)"></span>就寝</span>
     <span><span class="sw" style="background:var(--wake)"></span>起床</span>
     <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計棒の積み上げ分）</span>
-    <span><span class="sw" style="background:var(--steps)"></span>歩数（点線=7日平均）</span>
-    <span><span class="sw" style="background:var(--kcal)"></span>摂取カロリー（点線=7日平均）</span>
-    ${showRef?'<span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg・摂取は日ごとの目標）</span>':""}</div>`;
+    ${stn?'<span><span class="sw" style="background:var(--steps)"></span>歩数（点線=7日平均）</span>':""}
+    ${kn?'<span><span class="sw" style="background:var(--kcal)"></span>摂取カロリー（点線=7日平均）</span>':""}
+    ${showRef?`<span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg${kn?"・摂取は日ごとの目標":""}）</span>`:""}</div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
