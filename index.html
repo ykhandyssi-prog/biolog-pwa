@@ -82,6 +82,9 @@
     border-radius:7px; font-weight:600; cursor:pointer; font-size:14px; }
   .seg button.on{ background:var(--card); color:var(--ink); box-shadow:var(--shadow); }
   .done{ font-size:11px; }
+  .goal{ font-size:13px; color:var(--sub); margin:-4px 2px 12px; }
+  .goal:empty{ display:none; }
+  .goal b{ color:var(--steps); font-size:15px; }
   /* trends */
   .panel{ display:flex; align-items:center; gap:8px; margin-bottom:2px; }
   .panel .plab{ width:62px; font-size:12px; color:var(--sub); flex:none; }
@@ -146,6 +149,8 @@
     <span class="m" id="dLabel"></span>
     <button id="dNext">›</button>
   </div>
+  <!-- 朝にも夜にも見えるよう、カードの外に置く（目標は朝に見て動くためのもの） -->
+  <p class="goal" id="stGoal"></p>
   <div class="seg" id="cardSeg">
     <button data-card="morning">朝 <span class="done" id="doneM"></span></button>
     <button data-card="evening">夜 <span class="done" id="doneE"></span></button>
@@ -331,6 +336,55 @@ function lastWeight(){
 // 歩数は日ごとに数千歩動くので前回値プリフィルはしない（体重・walkMin と違い、
 // 前日値を初期表示すると「直せば済む」ではなく誤った値を追認させる方向に働く）。
 
+/* ---------- 歩数の適応目標（2026-09-24 決定） ----------
+   毎日の目標＝同じ種類の日（平日／土日祝）の直近9回の歩数の60パーセンタイル、25歩単位で切り上げ。
+   Adams et al. (BMC Public Health 2017) の適応目標を、歩数が曜日で二分される生活に合わせて分けて数える。
+   長期の目安 8,000歩は横に並べて出すだけ（目標の計算には使わない）。
+   同じ計算を 99_Attachments/scripts/steps_target.py（朝ブリーフィング用）も持つ＝変えるときは両方。 */
+const STEPS_LONG_TERM = 8000;
+const STEPS_WINDOW = 9, STEPS_PCT = 0.6, STEPS_ROUND = 25, STEPS_MIN_N = 3;
+// 祝日：内閣府の規則を式で持つ（祝日表を毎年手で足さずに済む）。春分・秋分の式は 1980〜2099年で有効。
+// 2019〜2021年の特例（即位・五輪の移動）は持たない＝記録が始まった 2026 年以降だけを正しく扱う。
+function nthMonday(y,m,n){ const first=new Date(y,m-1,1).getDay(); return 1+((8-first)%7)+(n-1)*7; }
+function baseHoliday(d){
+  const y=d.getFullYear(), m=d.getMonth()+1, dd=d.getDate(), k=y-1980;
+  const fixed={1:[1],2:[11,23],4:[29],5:[3,4,5],8:[11],11:[3,23]};
+  if((fixed[m]||[]).includes(dd)) return true;
+  if(m===1 && dd===nthMonday(y,1,2)) return true;    // 成人の日
+  if(m===7 && dd===nthMonday(y,7,3)) return true;    // 海の日
+  if(m===9 && dd===nthMonday(y,9,3)) return true;    // 敬老の日
+  if(m===10 && dd===nthMonday(y,10,2)) return true;  // スポーツの日
+  if(m===3 && dd===Math.floor(20.8431+0.242194*k-Math.floor(k/4))) return true;  // 春分の日
+  if(m===9 && dd===Math.floor(23.2488+0.242194*k-Math.floor(k/4))) return true;  // 秋分の日
+  return false;
+}
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function isJpHoliday(s){
+  const d=parseDate(s);
+  if(baseHoliday(d)) return true;
+  // 振替休日：日曜の祝日から祝日が続いた先の最初の平日
+  for(let p=addDays(d,-1); baseHoliday(p); p=addDays(p,-1)){ if(p.getDay()===0) return true; }
+  // 国民の休日：前後を祝日に挟まれた日（9月の敬老の日と秋分の日の間など）
+  return baseHoliday(addDays(d,-1)) && baseHoliday(addDays(d,1));
+}
+function isOffDay(s){ const w=parseDate(s).getDay(); return w===0||w===6||isJpHoliday(s); }
+function percentile(vals,p){   // 線形補間（Excel の PERCENTILE.INC と同じ）
+  const v=vals.slice().sort((a,b)=>a-b), pos=(v.length-1)*p, lo=Math.floor(pos), hi=Math.ceil(pos);
+  return v[lo]+(v[hi]-v[lo])*(pos-lo);
+}
+// date より前の、同じ種類の日の記録だけから作る（当日の入力で当日の目標が動かないように）。
+// stepDays＝歩数のある日付の昇順配列（呼び出し側で1回だけ作る）。
+function stepsTargetFor(date, stepDays){
+  const off=isOffDay(date), picked=[];
+  for(let i=stepDays.length-1; i>=0 && picked.length<STEPS_WINDOW; i--){
+    const k=stepDays[i];
+    if(k<date && isOffDay(k)===off) picked.push(days[k].steps);
+  }
+  if(picked.length<STEPS_MIN_N) return null;
+  return { target: Math.ceil(percentile(picked,STEPS_PCT)/STEPS_ROUND)*STEPS_ROUND, off, n: picked.length };
+}
+function stepDaysSorted(){ return Object.keys(days).filter(k=>days[k]&&days[k].steps!=null).sort(); }
+
 /* ---------- Firestore ---------- */
 function dayRef(date){ return doc(db,"users",uid,"days",date); }
 function settingsRef(){ return doc(db,"users",uid,"meta","settings"); }
@@ -427,11 +481,22 @@ function renderRecord(){
   buildScale("itchScale", FREQ_LABELS, FREQ_FRAC, d.itch!=null?d.itch:null, i=>{ patchDay({itch:i, loggedEveningAt:new Date().toISOString()}); });
   $("steps").value = d.steps!=null ? d.steps : "";
   $("stHint").textContent = `— ${dateLabel(curDate)}の合計`;   // どの日の歩数かを入力の瞬間に見せる
+  renderStepsGoal(d);
   $("nap").value = d.nap!=null ? d.nap : "";
   $("napStart").value = d.napStart||"";
   renderFlags(d);
   const mt=$("memo"); mt.value=d.memo||"";
   if(d.memo){ mt.style.display="block"; }
+}
+function renderStepsGoal(d){
+  const t=stepsTargetFor(curDate, stepDaysSorted());
+  if(!t){ $("stGoal").textContent=""; return; }
+  const who = curDate===logicalTodayStr() ? "今日" : "この日";
+  const kind = (t.off?"土日祝":"平日") + (t.n<STEPS_WINDOW? `・直近${t.n}回から` : "");
+  let h=`${who}の歩数目標 <b>${t.target.toLocaleString()}</b>歩（${kind}）・長期の目安 ${STEPS_LONG_TERM.toLocaleString()}`;
+  // 届いた日だけ印を付ける。届かなかった日に差分や×は出さない（目標は約4割の日で届く設計）。
+  if(d.steps!=null) h+=`<br>記録 ${d.steps.toLocaleString()}歩${d.steps>=t.target?" ✓":""}`;
+  $("stGoal").innerHTML=h;
 }
 function renderFlags(d){
   // 強制選択方式（Y/N）。CATA（該当だけタップ）は見落とし（weak satisficing）が
@@ -537,7 +602,11 @@ function renderTrend(){
   const tn=times.length? niceNum(times,4) : {lo:22,hi:32,ticks:[22,24,26,28,30,32]};
   const totn = totalHours.some(v=>v!=null) ? niceNum([0,...totalHours],3) : {lo:0,hi:10,ticks:[0,5,10]};
   const wTicks = wn? thinTicks(wn.ticks,3).map(t=>({v:t,label:(Number.isInteger(t)?String(t):t.toFixed(1))})) : [];
-  const stn = steps.some(v=>v!=null) ? niceNum([0,...steps],2) : null;
+  // 歩数の目標：日ごとに作り直すので摂取カロリーの目標と同じく階段線。長期の目安 8,000 は体重57kgと同じ ref。
+  const stepDays=stepDaysSorted();
+  const stTarget=keys.map(k=>{ const t=stepsTargetFor(k,stepDays); return t?t.target:null; });
+  const stDom = showRef ? [0,...steps,...stTarget,STEPS_LONG_TERM] : [0,...steps];
+  const stn = steps.some(v=>v!=null) ? niceNum(stDom,2) : null;
   const stTicks = stn? thinTicks(stn.ticks,3).map(t=>({v:t,label:(t>=1000? (t/1000)+"k" : String(Math.round(t)))})) : [];
   // 摂取カロリー：目安線ON時は目標値も軸域に含める（体重57kgと同じ扱い）
   const kLatest = (()=>{ for(let i=kcalTarget.length-1;i>=0;i--){ if(kcalTarget[i]!=null) return kcalTarget[i]; } return null; })();
@@ -562,8 +631,9 @@ function renderTrend(){
       ticks:totTicks, kind:"sleeptotal", night:nightHours, nap:napHours, tma:tma, ref:7,
       nightColor:"var(--sleep)", napColor:"var(--nap)" },
     { title:"歩数", unit:"歩", plotH:44, dmin:(stn?stn.lo:0), dmax:(stn?stn.hi:10000), ticks:stTicks,
-      hideIfEmpty:!stn,
-      series:[ {vals:stma, color:"var(--steps)", dash:"4 3"}, {vals:steps, color:"var(--steps)", dot:true} ] },
+      hideIfEmpty:!stn, ref:STEPS_LONG_TERM,
+      series:[ ...(showRef? [{vals:stTarget, color:"var(--accent)", dash:"2 3", step:true}] : []),
+               {vals:stma, color:"var(--steps)", dash:"4 3"}, {vals:steps, color:"var(--steps)", dot:true} ] },
     // 摂取カロリー：正本は calorie-log で、ここに来る kcal/kcalTarget は import_calorie.py が
     // Firestore へ書いた最小複製。目標は TDEE 引き直しのたびに変わりうるので階段線で描く。
     { title:"摂取カロリー", unit:"kcal", plotH:44, dmin:(kn?kn.lo:0), dmax:(kn?kn.hi:3000), ticks:kTicks,
@@ -661,7 +731,7 @@ function renderTrend(){
     <span><span class="sw" style="background:var(--nap)"></span>昼寝（合計棒の積み上げ分）</span>
     ${stn?'<span><span class="sw" style="background:var(--steps)"></span>歩数（点線=7日平均）</span>':""}
     ${kn?'<span><span class="sw" style="background:var(--kcal)"></span>摂取カロリー（点線=7日平均）</span>':""}
-    ${showRef?`<span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg${kn?"・摂取は日ごとの目標":""}）</span>`:""}</div>`;
+    ${showRef?`<span><span class="sw" style="background:var(--accent)"></span>目安線（睡眠7時間・体重57kg${stn?"・歩数は長期8,000と日ごとの目標":""}${kn?"・摂取は日ごとの目標":""}）</span>`:""}</div>`;
   $("trendBody").innerHTML=`<div class="chartwrap">${svg}<div class="charttip" id="bioTip"></div></div>${legend}`;
 
   // ホバー配線（全指標を縦に貫いてその日の値を出す）
@@ -673,7 +743,9 @@ function renderTrend(){
   }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
     if(d.weight!=null) r.push(`体重 ${d.weight}kg`);
-    if(d.steps!=null) r.push(`歩数 ${d.steps.toLocaleString()}歩`);
+    const stT=stTarget[i];
+    if(d.steps!=null) r.push(`歩数 ${d.steps.toLocaleString()}歩`+(stT!=null? `（目標 ${stT.toLocaleString()}${d.steps>=stT?" ✓":""}）` : ""));
+    else if(stT!=null) r.push(`歩数の目標 ${stT.toLocaleString()}歩`);
     if(d.walkMin!=null) r.push(`早歩き ${d.walkMin}分`);   // 2026-08-19 までの旧データ
     if(d.kcal!=null) r.push(`摂取 ${Math.round(d.kcal).toLocaleString()}kcal`
       + (d.kcalTarget!=null? `（目標 ${Math.round(d.kcalTarget).toLocaleString()}・${d.kcal-d.kcalTarget>=0?"+":""}${Math.round(d.kcal-d.kcalTarget).toLocaleString()}）` : ""));
