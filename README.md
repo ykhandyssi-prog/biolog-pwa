@@ -14,13 +14,14 @@
 - マウス（PC）・タッチ（スマホ）両対応（pointerイベント）、ダーク/ライト両対応
 
 ## データ
-- Firestore `users/{uid}/days/{YYYY-MM-DD}`（1日1ドキュメント）、`users/{uid}/meta/settings`（flags語彙・vault名）
+- Firestore `users/{uid}/days/{YYYY-MM-DD}`（1日1ドキュメント）、`users/{uid}/meta/settings`（flags語彙）
 - 朝＝weight, sleep(1-5), onset, wake／夜＝mood(0-4), stress(0-4), nap, flags[]／共通＝memo
 - 論理的な1日＝朝5時境界（00:00–04:59は前日扱い）
 
-## エクスポート（二本立て）
-- Firestore＝アプリ本体（同期・グラフ）
-- Advanced URI＝「Obsidianへ送る」で `99_Attachments/biolog/biolog.md` に1日1行(JSON)を追記 → Obsidian Sync
+## エクスポート
+- Firestore＝アプリ本体（同期・グラフ）＝正本
+- Vault 側の `99_Attachments/biolog/biolog.md`・`biolog.csv` は、PC の `biolog-sync/pull_biolog.py` が Firestore から作り直す
+- 「Obsidianへ送る」（Advanced URI）は 2026-10-03 に廃止（読む側がすべて pull してから読むため不要になった）
 - 保険としてJSON書き出しも有り
 
 ## セットアップ（初回・本人）※2026-06-26 構築済み
@@ -30,7 +31,6 @@
 3. Firestore Database を作成（本番モード・ロケーション asia-northeast1）、ルールを下記に
 4. プロジェクト設定 → ウェブアプリを追加し、firebaseConfig を `index.html` の `firebaseConfig` に貼り替え（`REPLACE_ME` を置換）
 5. Authentication → Settings → 承認済みドメインに `ykhandyssi-prog.github.io` を追加
-6. 設定タブで Vault名 を入力（Advanced URI 用）
 
 ### Firestore ルール
 ```

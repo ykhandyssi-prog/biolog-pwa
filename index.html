@@ -198,8 +198,6 @@
       <button class="mini wide" id="memoToggle" type="button">＋ ひとこと</button>
       <textarea id="memo" style="display:none;margin-top:8px" placeholder="任意（睡眠の事情なども）"></textarea>
     </div>
-    <button class="save" id="sendBtn">この日をObsidianへ送る</button>
-    <p class="muted" style="text-align:center;margin:8px 0 0">送るとObsidianが開きます（1日1回でOK）</p>
   </div>
 </section>
 
@@ -223,14 +221,6 @@
   <div class="card acct">
     <span class="muted" id="acctEmail">—</span>
     <button class="btn" id="logoutBtn" style="flex:none;min-width:auto;padding:8px 14px">ログアウト</button>
-  </div>
-  <div class="card">
-    <h3 class="sec">Obsidian連携</h3>
-    <div class="field">
-      <label>Vault名（Advanced URIで使う）</label>
-      <input id="vaultName" type="text" placeholder="例: yk-Obsidian" />
-    </div>
-    <p class="muted">「Obsidianへ送る」で <code>99_Attachments/biolog/biolog.md</code> に1日1行を追記します。Obsidianに Advanced URI プラグインが必要です。</p>
   </div>
   <div class="card">
     <h3 class="sec">特記フラグ</h3>
@@ -298,14 +288,13 @@ const DEFAULTS = {
     { key:"heavy",  label:"予定が重い" },
     { key:"active", label:"よく動いた" },
     { key:"social", label:"人と長く" }
-  ],
-  vaultName: ""
+  ]
 };
-const DATA_PATH = "99_Attachments/biolog/biolog.md";
+// Obsidian へ送る（Advanced URI）は 2026-10-03 に廃止。Vault 側は pull_biolog.py が Firestore から作り直す。
 
 /* ---------- 状態 ---------- */
 // walkMin は 2026-09-10 に歩数へ差し替え（早歩きは flags 側へ）。過去データ（07-26〜08-19）は
-// 消さないので読み出し・ツールチップ・Obsidian送信には残すが、入力UIとグラフからは外した。
+// 消さないので読み出し・ツールチップには残すが、入力UIとグラフからは外した。
 // kcal/kcalTarget は import_calorie.py が外から書く「読み専用」フィールド（→ patchDay）。
 let days = {};            // { "YYYY-MM-DD": {date,weight,sleep,onset,wake,mood,stress,itch,steps,nap,napStart,flags:[],memo,kcal,kcalTarget,...} }
 let settings = JSON.parse(JSON.stringify(DEFAULTS));
@@ -405,8 +394,7 @@ function patchDay(p){
 function saveSettings(){ if(uid) setDoc(settingsRef(), settings).catch(()=>{}); }
 function normalizeSettings(d){
   return {
-    flags: Array.isArray(d.flags) && d.flags.length ? d.flags.map(f=>({key:f.key||f.label, label:f.label||f.key})) : DEFAULTS.flags.slice(),
-    vaultName: typeof d.vaultName==="string" ? d.vaultName : ""
+    flags: Array.isArray(d.flags) && d.flags.length ? d.flags.map(f=>({key:f.key||f.label, label:f.label||f.key})) : DEFAULTS.flags.slice()
   };
 }
 
@@ -428,7 +416,6 @@ function startSync(){
   unsubSettings = onSnapshot(settingsRef(), snap=>{
     if(snap.exists()){ settings = normalizeSettings(snap.data()); }
     else { settings = JSON.parse(JSON.stringify(DEFAULTS)); setDoc(settingsRef(), settings).catch(()=>{}); }
-    $("vaultName").value = settings.vaultName||"";
     renderRecord(); renderSettings();
   }, err=>console.error("settings sync", err));
   unsubDays = onSnapshot(collection(db,"users",uid,"days"), snap=>{
@@ -528,26 +515,6 @@ function renderFlags(d){
   const done=settings.flags.filter(f=>reviewed.has(f.key)).length;
   $("flagProgress").textContent = total ? `${done}/${total} 確認済み` : "";
 }
-function sendToObsidian(){
-  const d=days[curDate];
-  if(!d || (d.weight==null&&d.steps==null&&d.sleep==null&&d.mood==null&&d.stress==null&&d.itch==null)){ toast("記録がありません"); return; }
-  const obj={ date:curDate };
-  // walkMin は旧データにしか無いが、その期間を送るときに落とさないよう残す。
-  // 並びは pull_biolog.py の FIELD_ORDER と揃える（同じ行を2経路で作るため）。
-  ["weight","walkMin","steps","sleep","onset","wake","mood","stress","itch","nap","napStart","kcal","kcalTarget","memo"]
-    .forEach(k=>{ if(d[k]!=null&&d[k]!=="") obj[k]=d[k]; });
-  if(d.flags&&d.flags.length) obj.flags=d.flags;
-  const line=JSON.stringify(obj);
-  const params=[];
-  if(settings.vaultName) params.push("vault="+encodeURIComponent(settings.vaultName));
-  params.push("filepath="+encodeURIComponent(DATA_PATH));
-  params.push("data="+encodeURIComponent(line+"\n"));
-  params.push("mode=append");
-  const url="obsidian://advanced-uri?"+params.join("&");
-  toast("Obsidianへ送信");
-  setTimeout(()=>{ location.href=url; }, 200);
-}
-
 /* ---------- 推移ビュー ---------- */
 function dayKeys(n){ const arr=[]; const base=logicalTodayStr(); for(let i=n-1;i>=0;i--) arr.push(shiftDate(base,-i)); return arr; }
 function onsetHours(s){ if(!s) return null; const [h,m]=s.split(":").map(Number); let v=h+m/60; if(v<12)v+=24; return v; }
@@ -790,7 +757,6 @@ function renderTrend(){
 
 /* ---------- 設定ビュー ---------- */
 function renderSettings(){
-  $("vaultName").value = settings.vaultName||"";
   const el=$("flagList"); el.innerHTML="";
   settings.flags.forEach((f,i)=>{
     const row=document.createElement("div"); row.className="catedit";
@@ -854,11 +820,9 @@ function bindUI(){
   $("nap").addEventListener("change",()=>{ const v=$("nap").value; patchDay({ nap: v===""?null:Math.round(Number(v)), loggedEveningAt:new Date().toISOString() }); });
   $("memoToggle").onclick=()=>{ const m=$("memo"); m.style.display = m.style.display==="none"?"block":"none"; if(m.style.display==="block") m.focus(); };
   $("memo").addEventListener("change",()=>patchDay({memo:$("memo").value.trim(), loggedEveningAt:new Date().toISOString()}));
-  $("sendBtn").onclick=sendToObsidian;
   $("rangeSeg").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ rangeDays=Number(b.dataset.days); $("rangeSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); renderTrend(); }; });
   $("refToggle").classList.toggle("on",showRef);
   $("refToggle").onclick=()=>{ showRef=!showRef; localStorage.setItem("bioShowRef",showRef?"1":"0"); $("refToggle").classList.toggle("on",showRef); renderTrend(); };
-  $("vaultName").addEventListener("change",()=>{ settings.vaultName=$("vaultName").value.trim(); saveSettings(); });
   $("addFlagBtn").onclick=addFlag;
   $("expJson").onclick=exportJson;
   $("impJson").onclick=()=>$("impFile").click();
