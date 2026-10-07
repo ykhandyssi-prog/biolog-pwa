@@ -290,6 +290,7 @@ const DEFAULTS = {
     { key:"social", label:"人と長く" }
   ]
 };
+const MEMO_UNWELL_HINT = "体温・症状など（例：36.8℃・のどの痛み）";   // 体調不良の日のメモ欄の案内
 // Obsidian へ送る（Advanced URI）は 2026-10-03 に廃止。Vault 側は pull_biolog.py が Firestore から作り直す。
 
 /* ---------- 状態 ---------- */
@@ -473,7 +474,10 @@ function renderRecord(){
   $("napStart").value = d.napStart||"";
   renderFlags(d);
   const mt=$("memo"); mt.value=d.memo||"";
-  if(d.memo){ mt.style.display="block"; }
+  // 体調不良の日は体温・症状をメモに残す（体温は専用欄を置かない＝設計方針 2026-07-02）
+  const unwell=(d.flags||[]).includes("unwell");
+  mt.placeholder = unwell ? MEMO_UNWELL_HINT : "任意（睡眠の事情なども）";
+  if(d.memo || unwell) mt.style.display="block";
 }
 function renderStepsGoal(d){
   const t=stepsTargetFor(curDate, stepDaysSorted());
@@ -507,6 +511,10 @@ function renderFlags(d){
         if(wantOn) flagSet.add(f.key); else flagSet.delete(f.key);
         revSet.add(f.key);
         patchDay({ flags:[...flagSet], flagsReviewed:[...revSet], loggedEveningAt:new Date().toISOString() });
+        // 「＋ ひとこと」は畳まれていて書き忘れやすいので、体調不良をありにした時点で開く。
+        if(wantOn && f.key==="unwell"){
+          const m=$("memo"); m.style.display="block"; m.placeholder=MEMO_UNWELL_HINT; m.focus();
+        }
       };
     });
     wrap.appendChild(row);
