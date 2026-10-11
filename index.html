@@ -166,6 +166,24 @@
       </div>
     </div>
     <div class="field">
+      <!-- 体温（2026-10-12〜4週間の試行）。起床直後・同じ体温計・同じ部位に固定＝日ごとに比べられる値にする。
+           「別の時刻にも測った」は体調不良の日の経過用（試行とは別に常設）。 -->
+      <label>体温 <span class="hint">— 起床直後・同じ体温計で</span></label>
+      <div class="row">
+        <input id="temp" type="number" inputmode="decimal" step="0.1" min="34" max="42" placeholder="—" />
+        <button class="mini" id="tSkip" type="button">スキップ</button>
+      </div>
+      <button class="mini wide" id="tempsToggle" type="button" style="margin-top:8px">＋ 別の時刻にも測った</button>
+      <div id="tempsBox" style="display:none;margin-top:8px">
+        <div id="tempsList"></div>
+        <div class="row">
+          <input id="tempsTime" type="time" />
+          <input id="tempsVal" type="number" inputmode="decimal" step="0.1" min="34" max="42" placeholder="℃" />
+          <button class="mini" id="tempsAdd" type="button">足す</button>
+        </div>
+      </div>
+    </div>
+    <div class="field">
       <label>昨夜の眠り</label>
       <div class="scale" id="sleepScale"></div>
     </div>
@@ -290,14 +308,16 @@ const DEFAULTS = {
     { key:"social", label:"人と長く" }
   ]
 };
-const MEMO_UNWELL_HINT = "体温・症状など（例：36.8℃・のどの痛み）";   // 体調不良の日のメモ欄の案内
+const MEMO_UNWELL_HINT = "症状など（例：のどの痛み）。体温は朝カードの体温欄へ";   // 体調不良の日のメモ欄の案内
+const TEMP_MIN = 34, TEMP_MAX = 42;   // 体温の入力として受ける範囲（打ち間違い＝365 などを弾く）
 // Obsidian へ送る（Advanced URI）は 2026-10-03 に廃止。Vault 側は pull_biolog.py が Firestore から作り直す。
 
 /* ---------- 状態 ---------- */
 // walkMin は 2026-09-10 に歩数へ差し替え（早歩きは flags 側へ）。過去データ（07-26〜08-19）は
 // 消さないので読み出し・ツールチップには残すが、入力UIとグラフからは外した。
 // kcal/kcalTarget は import_calorie.py が外から書く「読み専用」フィールド（→ patchDay）。
-let days = {};            // { "YYYY-MM-DD": {date,weight,sleep,onset,wake,mood,stress,itch,steps,nap,napStart,flags:[],memo,kcal,kcalTarget,...} }
+// temp＝起床直後の体温、temps＝[{t:"HH:MM",v:36.8}] 体調不良の日などに時刻つきで足した体温（2026-10-12）
+let days = {};            // { "YYYY-MM-DD": {date,weight,temp,temps:[],sleep,onset,wake,mood,stress,itch,steps,nap,napStart,flags:[],memo,kcal,kcalTarget,...} }
 let settings = JSON.parse(JSON.stringify(DEFAULTS));
 let curDate = logicalTodayStr();
 let cardMode = (new Date().getHours()>=5 && new Date().getHours()<17) ? "morning" : "evening";
@@ -452,7 +472,7 @@ function renderRecord(){
   $("cardMorning").style.display = cardMode==="morning"?"block":"none";
   $("cardEvening").style.display = cardMode==="evening"?"block":"none";
   // done marks
-  const mDone = (d.weight!=null||d.sleep!=null||d.onset||d.wake);
+  const mDone = (d.weight!=null||d.temp!=null||d.sleep!=null||d.onset||d.wake);
   const eDone = (d.mood!=null||d.stress!=null||d.itch!=null||d.steps!=null);
   $("doneM").textContent = mDone?"●":"";
   $("doneE").textContent = eDone?"●":"";
@@ -460,6 +480,8 @@ function renderRecord(){
   const lw=lastWeight();
   $("weight").value = d.weight!=null ? d.weight : "";
   $("wHint").textContent = (d.weight==null && lw!=null) ? `前回 ${lw}` : "";
+  $("temp").value = d.temp!=null ? d.temp : "";   // 前回値は出さない（その朝の値を測って入れる欄なので、前日値の追認を誘わない）
+  renderTemps(d);
   buildScale("sleepScale", SLEEP_LABELS, null, d.sleep!=null?d.sleep-1:null, i=>{ patchDay({sleep:i+1, loggedMorningAt:new Date().toISOString()}); });
   $("onset").value = d.onset||"";
   $("wake").value = d.wake||"";
@@ -474,10 +496,27 @@ function renderRecord(){
   $("napStart").value = d.napStart||"";
   renderFlags(d);
   const mt=$("memo"); mt.value=d.memo||"";
-  // 体調不良の日は体温・症状をメモに残す（体温は専用欄を置かない＝設計方針 2026-07-02）
+  // 体調不良の日は症状をメモに残す（体温は 2026-10-12 から朝カードの体温欄＝時刻つきで何回でも足せる）
   const unwell=(d.flags||[]).includes("unwell");
   mt.placeholder = unwell ? MEMO_UNWELL_HINT : "任意（睡眠の事情なども）";
   if(d.memo || unwell) mt.style.display="block";
+}
+// 時刻つきの体温。体調不良の日（前の晩・当日）か、記録がある日は開いておく。
+function parseTemp(s){ const v=Math.round(Number(s)*10)/10; return (s!=="" && v>=TEMP_MIN && v<=TEMP_MAX) ? v : null; }
+function renderTemps(d){
+  const list=(d.temps||[]).slice().sort((a,b)=>a.t<b.t?-1:a.t>b.t?1:0);
+  const el=$("tempsList"); el.innerHTML="";
+  list.forEach(x=>{
+    const row=document.createElement("div"); row.className="catedit";
+    row.innerHTML=`<span class="nm">${esc(x.t)}　${esc(x.v.toFixed(1))}℃</span><button title="削除" type="button">×</button>`;
+    row.querySelector("button").onclick=()=>{
+      patchDay({ temps:(curDay().temps||[]).filter(y=>!(y.t===x.t && y.v===x.v)) });
+    };
+    el.appendChild(row);
+  });
+  const unwell=(d.flags||[]).includes("unwell") || ((days[shiftDate(curDate,-1)]||{}).flags||[]).includes("unwell");
+  if(list.length || unwell) $("tempsBox").style.display="block";
+  if(!$("tempsTime").value) $("tempsTime").value = curDate===logicalTodayStr() ? nowHM() : "";
 }
 function renderStepsGoal(d){
   const t=stepsTargetFor(curDate, stepDaysSorted());
@@ -718,6 +757,8 @@ function renderTrend(){
   }); return m; }
   function tipHtml(i){ const k=keys[i], d=days[k]||{}; const r=[`<b>${dateLabel(k)}</b>`];
     if(d.weight!=null) r.push(`体重 ${d.weight}kg`);
+    if(d.temp!=null) r.push(`体温 ${d.temp.toFixed(1)}℃（起床後）`);
+    if(d.temps&&d.temps.length) r.push(`体温 `+d.temps.slice().sort((a,b)=>a.t<b.t?-1:1).map(x=>`${esc(x.t)} ${x.v.toFixed(1)}`).join("・"));
     const stT=stTarget[i];
     if(d.steps!=null) r.push(`歩数 ${d.steps.toLocaleString()}歩`+(stT!=null? `（目標 ${stT.toLocaleString()}${d.steps>=stT?" ✓":""}）` : ""));
     else if(stT!=null) r.push(`歩数の目標 ${stT.toLocaleString()}歩`);
@@ -819,6 +860,21 @@ function bindUI(){
   $("dNext").onclick=()=>{ if(curDate<logicalTodayStr()){ curDate=shiftDate(curDate,1); renderRecord(); } };
   $("weight").addEventListener("change",()=>{ const v=$("weight").value; patchDay({ weight: v===""?null:Math.round(Number(v)*10)/10, loggedMorningAt:new Date().toISOString() }); });
   $("wSkip").onclick=()=>{ patchDay({weight:null}); $("weight").value=""; toast("体重スキップ"); };
+  $("temp").addEventListener("change",()=>{
+    const s=$("temp").value; const v=parseTemp(s);
+    if(s!=="" && v==null){ toast(`体温は ${TEMP_MIN}〜${TEMP_MAX}℃ で入れてください`); $("temp").value=curDay().temp!=null?curDay().temp:""; return; }
+    patchDay({ temp:v, loggedMorningAt:new Date().toISOString() });
+  });
+  $("tSkip").onclick=()=>{ patchDay({temp:null}); $("temp").value=""; toast("体温スキップ"); };
+  $("tempsToggle").onclick=()=>{ const b=$("tempsBox"); b.style.display = b.style.display==="none"?"block":"none"; };
+  $("tempsAdd").onclick=()=>{
+    if(!uid){ toast("ログインしてください"); return; }
+    const t=$("tempsTime").value, v=parseTemp($("tempsVal").value);
+    if(!t){ toast("時刻を入れてください"); return; }
+    if(v==null){ toast(`体温は ${TEMP_MIN}〜${TEMP_MAX}℃ で入れてください`); return; }
+    patchDay({ temps:[...(curDay().temps||[]).filter(x=>x.t!==t), {t,v}] });   // 同じ時刻は上書き
+    $("tempsVal").value=""; $("tempsTime").value=""; toast(`${t} ${v.toFixed(1)}℃ を足しました`);
+  };
   $("steps").addEventListener("change",()=>{ const v=$("steps").value; patchDay({ steps: v===""?null:Math.round(Number(v)), loggedEveningAt:new Date().toISOString() }); });
   $("stSkip").onclick=()=>{ patchDay({steps:null}); $("steps").value=""; toast("歩数スキップ"); };
   $("napStart").addEventListener("change",()=>patchDay({napStart:$("napStart").value, loggedEveningAt:new Date().toISOString()}));
