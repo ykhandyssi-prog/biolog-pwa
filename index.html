@@ -85,6 +85,16 @@
   .goal{ font-size:13px; color:var(--sub); margin:-4px 2px 12px; }
   .goal:empty{ display:none; }
   .goal b{ color:var(--steps); font-size:15px; }
+  /* けさの便り（2026-11-25）：PC の朝の便りが Firestore の letters/{日付} に置いた今日の予定と focus 候補 */
+  .letter{ border-color:color-mix(in srgb,var(--accent) 45%,var(--line)); }
+  .letter ul{ margin:0 0 10px; padding-left:18px; font-size:13px; color:var(--sub); }
+  .letter .cand{ display:flex; gap:8px; align-items:flex-start; padding:9px 10px; border:1px solid var(--line);
+    border-radius:10px; margin-bottom:8px; cursor:pointer; font-size:14px; }
+  .letter .cand.on{ border-color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,transparent); }
+  .letter .cand .ck{ color:var(--accent); width:1.2em; flex:none; }
+  .letter .chosen{ font-size:14px; margin:0 0 4px; }
+  .letter .acts{ display:flex; gap:8px; align-items:center; }
+  .letter .acts .save{ flex:1; margin-top:0; }
   /* trends */
   .panel{ display:flex; align-items:center; gap:8px; margin-bottom:2px; }
   .panel .plab{ width:62px; font-size:12px; color:var(--sub); flex:none; }
@@ -151,6 +161,8 @@
   </div>
   <!-- 朝にも夜にも見えるよう、カードの外に置く（目標は朝に見て動くためのもの） -->
   <p class="goal" id="stGoal"></p>
+  <!-- けさの便り：今日の分があるときだけ出る。選んだ focus は PC 側（letter.py pull）が Daily へ書く -->
+  <div id="letterCard" class="card letter" style="display:none"></div>
   <div class="seg" id="cardSeg">
     <button data-card="morning">朝 <span class="done" id="doneM"></span></button>
     <button data-card="evening">夜 <span class="done" id="doneE"></span></button>
@@ -246,6 +258,15 @@
     <div class="addcat"><input id="addFlag" type="text" placeholder="追加するフラグ名" /><button id="addFlagBtn" type="button">追加</button></div>
   </div>
   <div class="card">
+    <h3 class="sec">けさの便りの通知</h3>
+    <p class="muted" id="pushState" style="margin:0 0 10px"></p>
+    <div class="btnrow">
+      <button class="btn" id="pushBtn" type="button">通知を受け取る</button>
+      <button class="btn" id="pushTest" type="button">この端末で試す</button>
+    </div>
+    <p class="muted">毎朝 PC が今日の予定と focus の案を用意したら、この端末に1行届きます。</p>
+  </div>
+  <div class="card">
     <h3 class="sec">バックアップ</h3>
     <div class="btnrow">
       <button class="btn" id="expJson">JSON書き出し</button>
@@ -279,7 +300,8 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, setDoc, deleteDoc, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
 /* Firebase設定（公開して安全な値＝秘密鍵ではない）。Firebaseプロジェクト名は bio-pwa
    （GitHub/ローカルは biolog-pwa だがFirebaseのみ bio-pwa で名前が異なる）。 */
@@ -325,6 +347,7 @@ let rangeDays = 30;
 let showRef = localStorage.getItem("bioShowRef") !== "0"; // 目安線（睡眠7h・体重57kg）の表示。既定ON・端末ごとに記憶
 let uid = null;
 let unsubDays = null, unsubSettings = null;
+let letter = null, letterPick = null, letterEdit = false, unsubLetter = null;   // けさの便り（今日の分）
 
 /* ---------- ユーティリティ ---------- */
 function $(id){ return document.getElementById(id); }
@@ -398,6 +421,8 @@ function stepDaysSorted(){ return Object.keys(days).filter(k=>days[k]&&days[k].s
 /* ---------- Firestore ---------- */
 function dayRef(date){ return doc(db,"users",uid,"days",date); }
 function settingsRef(){ return doc(db,"users",uid,"meta","settings"); }
+function letterRef(date){ return doc(db,"users",uid,"letters",date); }   // 書き手＝PC の letter.py（chosen だけこのアプリが書く）
+function pushRef(){ return doc(db,"users",uid,"meta","push"); }          // 通知の宛先トークン
 // このアプリが書かないフィールド＝外部（import_calorie.py → push_kcal.py）が所有する。
 // patchDay はローカルの days[curDate] スナップショット全体を書き戻すので、これを外さないと
 // 古い kcal を掴んだ端末（オフライン／取り込み直し前）がその日を編集した瞬間に、
@@ -443,8 +468,21 @@ function startSync(){
     days = {}; snap.docs.forEach(d=>{ days[d.id]=d.data(); });
     refreshActive();
   }, err=>console.error("days sync", err));
+  watchLetter();
 }
-function stopSync(){ if(unsubDays){unsubDays();unsubDays=null;} if(unsubSettings){unsubSettings();unsubSettings=null;} days={}; }
+// 5時を越えて開きっぱなしでも、画面に戻ったときに今日の便りへ付け替える
+function watchLetter(){
+  if(unsubLetter){ unsubLetter(); unsubLetter=null; }
+  if(!uid) return;
+  const today=logicalTodayStr();
+  unsubLetter = onSnapshot(letterRef(today), snap=>{
+    letter = snap.exists() ? snap.data() : null;
+    if(letter) letter._day = today;
+    letterPick = null; letterEdit = false;
+    renderLetter();
+  }, err=>console.error("letter sync", err));
+}
+function stopSync(){ if(unsubDays){unsubDays();unsubDays=null;} if(unsubSettings){unsubSettings();unsubSettings=null;} if(unsubLetter){unsubLetter();unsubLetter=null;} days={}; letter=null; }
 function refreshActive(){
   const v=document.querySelector(".view.active");
   if(!v) return;
@@ -500,6 +538,73 @@ function renderRecord(){
   const unwell=(d.flags||[]).includes("unwell");
   mt.placeholder = unwell ? MEMO_UNWELL_HINT : "任意（睡眠の事情なども）";
   if(d.memo || unwell) mt.style.display="block";
+  renderLetter();
+}
+/* ---------- けさの便り（2026-11-25） ----------
+   催促・評価の言葉は置かない。候補は既定で全部選んだ状態＝「これでいく」1タップで済む。 */
+function renderLetter(){
+  const el=$("letterCard");
+  const today=logicalTodayStr();
+  if(!letter || letter._day!==today || curDate!==today){ el.style.display="none"; el.innerHTML=""; return; }
+  el.style.display="block";
+  const ev=(letter.events||[]);
+  let h=`<h3 class="sec">けさの便り</h3>`;
+  h+= ev.length ? `<ul>${ev.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="muted" style="margin:0 0 10px">今日は予定なし</p>`;
+  const chosen=letter.chosen;
+  if(Array.isArray(chosen) && !letterEdit){
+    h+= chosen.length
+      ? `<p class="muted" style="margin:0 0 6px">今日の focus</p>${chosen.map(c=>`<p class="chosen">・${esc(c)}</p>`).join("")}`
+      : `<p class="muted" style="margin:0 0 6px">今日は focus を決めない日</p>`;
+    h+=`<div class="acts"><span class="muted" style="flex:1">${letter.appliedAt?"Daily に入りました":"PC が Daily に入れます"}</span><button class="mini" id="ltEdit" type="button">変える</button></div>`;
+    el.innerHTML=h;
+    $("ltEdit").onclick=()=>{ letterEdit=true; letterPick=new Set(chosen.map(c=>(letter.candidates||[]).indexOf(c)).filter(i=>i>=0)); renderLetter(); };
+    return;
+  }
+  const cands=letter.candidates||[];
+  if(letterPick==null) letterPick=new Set(cands.map((_,i)=>i));
+  h+=`<p class="muted" style="margin:0 0 6px">focus の案（タップで外せます）</p>`;
+  h+=cands.map((c,i)=>`<div class="cand${letterPick.has(i)?" on":""}" data-i="${i}"><span class="ck">${letterPick.has(i)?"✓":""}</span><span>${esc(c)}</span></div>`).join("");
+  h+=`<div class="acts"><button class="save" id="ltOk" type="button">これでいく</button><button class="mini" id="ltNone" type="button">今日は決めない</button></div>`;
+  el.innerHTML=h;
+  el.querySelectorAll(".cand").forEach(row=>{ row.onclick=()=>{ const i=Number(row.dataset.i); if(letterPick.has(i)) letterPick.delete(i); else letterPick.add(i); renderLetter(); }; });
+  $("ltOk").onclick=()=>saveLetterChoice(cands.filter((_,i)=>letterPick.has(i)));
+  $("ltNone").onclick=()=>saveLetterChoice([]);
+}
+function saveLetterChoice(list){
+  if(!uid||!letter){ return; }
+  letterEdit=false;
+  setDoc(letterRef(letter._day), { chosen:list, chosenAt:new Date().toISOString() }, { merge:true })
+    .then(()=>toast(list.length?"focus を決めました":"今日は決めない日にしました"))
+    .catch(()=>toast("保存に失敗（復帰後に同期）"));
+}
+/* ---------- 通知の受け取り（けさの便り） ---------- */
+function renderPushState(){
+  const el=$("pushState"); if(!el) return;
+  if(!("Notification" in window)){ el.textContent="この端末のブラウザは通知に対応していません"; return; }
+  const has=!!localStorage.getItem("bioPushToken");
+  el.textContent = Notification.permission==="granted" && has ? "この端末で受け取ります"
+    : Notification.permission==="denied" ? "通知がブロックされています（ブラウザのサイト設定から許可できます）"
+    : "まだ受け取っていません";
+}
+async function enablePush(){
+  if(!uid){ toast("ログインしてください"); return; }
+  try{
+    if(!(await isSupported())){ $("pushState").textContent="この端末のブラウザは通知に対応していません"; return; }
+    const perm = await Notification.requestPermission();
+    if(perm!=="granted"){ renderPushState(); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const token = await getToken(getMessaging(app), { serviceWorkerRegistration: reg });
+    await setDoc(pushRef(), { tokens: arrayUnion(token), updatedAt: new Date().toISOString() }, { merge:true });
+    localStorage.setItem("bioPushToken", token);
+    toast("通知を受け取れるようにしました"); renderPushState();
+  }catch(e){ $("pushState").textContent="登録に失敗: "+((e&&(e.code||e.message))||e); }
+}
+async function testPush(){
+  try{
+    if(Notification.permission!=="granted"){ toast("先に「通知を受け取る」を押してください"); return; }
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification("けさの便り（試し）", { body:"この端末に表示できます", tag:"letter-test" });
+  }catch(e){ toast("表示に失敗: "+((e&&e.message)||e)); }
 }
 // 時刻つきの体温。体調不良の日（前の晩・当日）か、記録がある日は開いておく。
 function parseTemp(s){ const v=Math.round(Number(s)*10)/10; return (s!=="" && v>=TEMP_MIN && v<=TEMP_MAX) ? v : null; }
@@ -806,6 +911,7 @@ function renderTrend(){
 
 /* ---------- 設定ビュー ---------- */
 function renderSettings(){
+  renderPushState();
   const el=$("flagList"); el.innerHTML="";
   settings.flags.forEach((f,i)=>{
     const row=document.createElement("div"); row.className="catedit";
@@ -888,6 +994,9 @@ function bindUI(){
   $("refToggle").classList.toggle("on",showRef);
   $("refToggle").onclick=()=>{ showRef=!showRef; localStorage.setItem("bioShowRef",showRef?"1":"0"); $("refToggle").classList.toggle("on",showRef); renderTrend(); };
   $("addFlagBtn").onclick=addFlag;
+  $("pushBtn").onclick=enablePush;
+  $("pushTest").onclick=testPush;
+  document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && uid && (!letter || letter._day!==logicalTodayStr())) watchLetter(); });
   $("expJson").onclick=exportJson;
   $("impJson").onclick=()=>$("impFile").click();
   $("impFile").onchange=importJson;
