@@ -264,7 +264,12 @@
       <button class="btn" id="pushBtn" type="button">通知を受け取る</button>
       <button class="btn" id="pushTest" type="button">この端末で試す</button>
     </div>
-    <p class="muted">毎朝 PC が今日の予定と focus の案を用意したら、この端末に1行届きます。</p>
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>平日に鳴らす</label><input id="ringWeekday" type="time" /></div>
+      <div class="field"><label>土日に鳴らす</label><input id="ringWeekend" type="time" /></div>
+    </div>
+    <label class="muted" style="display:flex;align-items:center;gap:8px;margin:8px 0 0"><input id="ringOn" type="checkbox" /> 便りの通知を鳴らす</label>
+    <p class="muted">PC が早朝に今日の予定と focus の案を置いておき、上の時刻にこの端末へ1行届けます。アラームの数分後にしておくと「二の鐘」になります。変えた時刻は次の朝から効きます（PC は 05:00〜10:00 の間で見ています）。音は Android の設定（アプリ → Chrome → 通知 → このサイト）で選びます。</p>
   </div>
   <div class="card">
     <h3 class="sec">バックアップ</h3>
@@ -300,7 +305,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, setDoc, deleteDoc, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, setDoc, deleteDoc, onSnapshot, arrayUnion, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
 /* Firebase設定（公開して安全な値＝秘密鍵ではない）。Firebaseプロジェクト名は bio-pwa
@@ -598,6 +603,26 @@ async function enablePush(){
     localStorage.setItem("bioPushToken", token);
     toast("通知を受け取れるようにしました"); renderPushState();
   }catch(e){ $("pushState").textContent="登録に失敗: "+((e&&(e.code||e.message))||e); }
+}
+// 鳴らす時刻は meta/push.ring に置く。PC の letter.py ring が毎朝これを読む（無ければ 06:03・07:33）。
+const RING_DEFAULT={ weekday:"06:03", weekend:"07:33", on:true };
+async function loadRing(){
+  if(!uid) return;
+  let r={};
+  try{ const s=await getDoc(pushRef()); r=(s.exists() && s.data().ring) || {}; }catch(_){}
+  $("ringWeekday").value = r.weekday || RING_DEFAULT.weekday;
+  $("ringWeekend").value = r.weekend || RING_DEFAULT.weekend;
+  $("ringOn").checked = r.on!==false;
+}
+function saveRing(){
+  if(!uid){ toast("ログインしてください"); return; }
+  const wd=$("ringWeekday").value, we=$("ringWeekend").value;
+  if(!/^\d\d:\d\d$/.test(wd) || !/^\d\d:\d\d$/.test(we)){ toast("時刻を入れてください"); return; }
+  const lo=t=>t>="05:00" && t<="10:00";
+  if(!lo(wd) || !lo(we)) toast("05:00〜10:00 の外は PC が見ていないので鳴りません");
+  setDoc(pushRef(), { ring:{ weekday:wd, weekend:we, on:$("ringOn").checked }, updatedAt:new Date().toISOString() }, { merge:true })
+    .then(()=>toast($("ringOn").checked ? `平日 ${wd}・土日 ${we} に鳴らします` : "便りの通知を止めました"))
+    .catch(()=>toast("保存に失敗（復帰後に同期）"));
 }
 async function testPush(){
   try{
@@ -911,7 +936,7 @@ function renderTrend(){
 
 /* ---------- 設定ビュー ---------- */
 function renderSettings(){
-  renderPushState();
+  renderPushState(); loadRing();
   const el=$("flagList"); el.innerHTML="";
   settings.flags.forEach((f,i)=>{
     const row=document.createElement("div"); row.className="catedit";
@@ -996,6 +1021,7 @@ function bindUI(){
   $("addFlagBtn").onclick=addFlag;
   $("pushBtn").onclick=enablePush;
   $("pushTest").onclick=testPush;
+  ["ringWeekday","ringWeekend","ringOn"].forEach(id=>$(id).addEventListener("change",saveRing));
   document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && uid && (!letter || letter._day!==logicalTodayStr())) watchLetter(); });
   $("expJson").onclick=exportJson;
   $("impJson").onclick=()=>$("impFile").click();
