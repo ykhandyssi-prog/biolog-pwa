@@ -567,12 +567,19 @@ function renderLetter(){
   }
   const cands=letter.candidates||[];
   if(letterPick==null) letterPick=new Set(cands.map((_,i)=>i));
-  h+=`<p class="muted" style="margin:0 0 6px">focus の案（タップで外せます）</p>`;
+  // 寝起きに読まずに押せるよう、いまの状態と押すボタンを1文で言う（2026-11-25 本人「選び方が分かんない」）
+  const n=letterPick.size, all=cands.length;
+  const guide = !all ? "今日は focus の案がありません"
+    : n===all ? (all===1 ? "案を入れてあります。このままでよければ下のボタンを押すだけです" : `${all}つとも入れてあります。このままでよければ下のボタンを押すだけです。外したい案はタップ`)
+    : n===0 ? "案をタップすると入ります（✓）"
+    : "✓ の付いた案で決めます。もう一度タップで戻せます";
+  h+=`<p class="muted" style="margin:0 0 6px">${guide}</p>`;
   h+=cands.map((c,i)=>`<div class="cand${letterPick.has(i)?" on":""}" data-i="${i}"><span class="ck">${letterPick.has(i)?"✓":""}</span><span>${esc(c)}</span></div>`).join("");
-  h+=`<div class="acts"><button class="save" id="ltOk" type="button">これでいく</button><button class="mini" id="ltNone" type="button">今日は決めない</button></div>`;
+  const okLabel = n ? `この${n}つでいく` : "案を選んでいません";
+  h+=`<div class="acts">${all?`<button class="save" id="ltOk" type="button"${n?"":" disabled"}>${okLabel}</button>`:""}<button class="mini" id="ltNone" type="button">今日は決めない</button></div>`;
   el.innerHTML=h;
   el.querySelectorAll(".cand").forEach(row=>{ row.onclick=()=>{ const i=Number(row.dataset.i); if(letterPick.has(i)) letterPick.delete(i); else letterPick.add(i); renderLetter(); }; });
-  $("ltOk").onclick=()=>saveLetterChoice(cands.filter((_,i)=>letterPick.has(i)));
+  if($("ltOk")) $("ltOk").onclick=()=>saveLetterChoice(cands.filter((_,i)=>letterPick.has(i)));
   $("ltNone").onclick=()=>saveLetterChoice([]);
 }
 function saveLetterChoice(list){
